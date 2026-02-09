@@ -19,6 +19,9 @@ export const apiFetch = async (
         const response = await fetch(url, {
             ...fetchOptions,
             signal: controller.signal,
+            // Utiliser 'same-origin' au lieu de 'include' pour éviter les erreurs CORS
+            // Une fois le backend configuré avec CORS strict, passer à 'include'
+            credentials: (fetchOptions as any).credentials || 'same-origin',
             headers: {
                 'Content-Type': 'application/json',
                 ...fetchOptions.headers,
@@ -26,7 +29,24 @@ export const apiFetch = async (
         });
 
         if (!response.ok) {
-            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            let errBody = null;
+            try {
+                // Lire le texte une seule fois et le parser
+                const text = await response.text();
+                try {
+                    errBody = JSON.parse(text);
+                } catch {
+                    errBody = { message: text };
+                }
+            } catch {
+                errBody = null;
+            }
+            const err: any = new Error(
+                errBody?.message || `API Error: ${response.status} ${response.statusText}`
+            );
+            err.status = response.status;
+            err.body = errBody;
+            throw err;
         }
 
         return response;

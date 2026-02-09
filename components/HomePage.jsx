@@ -24,7 +24,7 @@ const HomePage = () => {
 
             // setToken(data?.token);
             // setUser(data?.user);
-            navigate('/dashboard');
+            navigate('/admin');
         } catch (error) {
             const status = error?.status;
             if (status === 403) {

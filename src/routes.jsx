@@ -1,6 +1,7 @@
 import HomePage from '../components/HomePage';
 import Admin from '../components/Admin';
-import AdminDashboard from '../components/dashboard'
+
+const AdminDashboardRoute = () => <Admin initialSectionId="dashboard" />;
 
 export const routes = [
     {
@@ -18,7 +19,7 @@ export const routes = [
     {
         id: 'dashboard',
         path: '/dashboard',
-        element: AdminDashboard,
+        element: AdminDashboardRoute,
         name: 'Tableau de Bord',
     }
 

@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
+import { apiPost } from '../src/api';
 
 const AccessModal = ({ isOpen, onClose }) => {
     const [accessForm, setAccessForm] = useState({
-        fullName: '',
-        organization: '',
-        role: '',
-        phone: '',
+        nom: '',
+        prenom: '',
+        password: '',
+        telephone: '',
         email: '',
-        message: '',
     });
     const [isSubmittingAccess, setIsSubmittingAccess] = useState(false);
     const [accessSubmitError, setAccessSubmitError] = useState('');
@@ -17,19 +17,6 @@ const AccessModal = ({ isOpen, onClose }) => {
         setAccessForm((prev) => ({ ...prev, [field]: value }));
     };
 
-    const submitAccessRequest = async (payload) => {
-        // Placeholder API call to be replaced later
-        // Example:
-        // const response = await fetch('/api/access-request', {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify(payload),
-        // });
-        // if (!response.ok) throw new Error('Request failed');
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return { status: 'ok', payload };
-    };
-
     const handleAccessSubmit = async (e) => {
         e.preventDefault();
         setAccessSubmitError('');
@@ -37,18 +24,27 @@ const AccessModal = ({ isOpen, onClose }) => {
         setIsSubmittingAccess(true);
 
         try {
-            await submitAccessRequest(accessForm);
+            const payload = {
+                ...accessForm,
+                nom: accessForm.nom,
+                prenom: accessForm.prenom,
+                password: accessForm.password,
+            };
+            await apiPost('/api/users', payload);
             setAccessSubmitSuccess("Demande envoyée. Nous reviendrons vers vous rapidement.");
             setAccessForm({
-                fullName: '',
-                organization: '',
-                role: '',
-                phone: '',
+                nom: '',
+                prenom: '',
+                password: '',
+                telephone: '',
                 email: '',
-                message: '',
             });
         } catch (error) {
-            setAccessSubmitError("Une erreur s'est produite. Merci de réessayer.");
+            console.error('Erreur complet:', error);
+            console.error('Status:', error?.status);
+            console.error('Body:', error?.body);
+            const errorMsg = error?.body?.message || error?.message || "Une erreur s'est produite. Merci de réessayer.";
+            setAccessSubmitError(errorMsg);
         } finally {
             setIsSubmittingAccess(false);
         }
@@ -58,16 +54,17 @@ const AccessModal = ({ isOpen, onClose }) => {
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-            <div
-                role="presentation"
+            <button
+                type="button"
+                aria-label="Fermer la fenêtre"
                 onClick={onClose}
-                className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
+                className="absolute inset-0 z-0 bg-slate-900/50 backdrop-blur-sm"
             />
             <div
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="access-modal-title"
-                className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl shadow-slate-900/20 ring-1 ring-black/10 overflow-hidden"
+                className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl shadow-slate-900/20 ring-1 ring-black/10 overflow-hidden"
             >
                 <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-purple-50 via-white to-indigo-50">
                     <div className="flex items-start justify-between gap-4">
@@ -101,10 +98,10 @@ const AccessModal = ({ isOpen, onClose }) => {
                             <input
                                 id="access-full-name"
                                 type="text"
-                                value={accessForm.fullName}
-                                onChange={(e) => updateAccessField('fullName', e.target.value)}
+                                value={accessForm.nom}
+                                onChange={(e) => updateAccessField('nom', e.target.value)}
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
-                                placeholder="Votre nom"
+                                placeholder="nom"
                                 required
                             />
                         </div>
@@ -115,10 +112,10 @@ const AccessModal = ({ isOpen, onClose }) => {
                             <input
                                 id="access-organization"
                                 type="text"
-                                value={accessForm.organization}
-                                onChange={(e) => updateAccessField('organization', e.target.value)}
+                                value={accessForm.prenom}
+                                onChange={(e) => updateAccessField('prenom', e.target.value)}
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
-                                placeholder="Nom de l'organisation"
+                                placeholder="prénom"
                                 required
                             />
                         </div>
@@ -129,10 +126,10 @@ const AccessModal = ({ isOpen, onClose }) => {
                             <input
                                 id="access-role"
                                 type="text"
-                                value={accessForm.role}
-                                onChange={(e) => updateAccessField('role', e.target.value)}
+                                value={accessForm.password}
+                                onChange={(e) => updateAccessField('password', e.target.value)}
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
-                                placeholder="Ex: Responsable projet"
+                                placeholder="Ex: password"
                             />
                         </div>
                         <div>
@@ -142,10 +139,10 @@ const AccessModal = ({ isOpen, onClose }) => {
                             <input
                                 id="access-phone"
                                 type="tel"
-                                value={accessForm.phone}
-                                onChange={(e) => updateAccessField('phone', e.target.value)}
+                                value={accessForm.telephone}
+                                onChange={(e) => updateAccessField('telephone', e.target.value)}
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
-                                placeholder="+33 6 12 34 56 78"
+                                placeholder="+237 6 78 34 56 78"
                             />
                         </div>
                         <div className="md:col-span-2">
@@ -158,11 +155,11 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 value={accessForm.email}
                                 onChange={(e) => updateAccessField('email', e.target.value)}
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
-                                placeholder="nom@organisation.com"
+                                placeholder="nom@example.com"
                                 required
                             />
                         </div>
-                        <div className="md:col-span-2">
+                        {/* <div className="md:col-span-2">
                             <label className="block text-sm font-semibold text-slate-900 mb-2" htmlFor="access-message">
                                 Message
                             </label>
@@ -173,7 +170,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900 min-h-[120px] resize-none"
                                 placeholder="Dites-nous en quelques lignes ce que vous souhaitez faire."
                             />
-                        </div>
+                        </div> */}
                     </div>
 
                     {accessSubmitError && (
