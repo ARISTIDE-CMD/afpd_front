@@ -59,12 +59,14 @@ const AccessModal = ({ isOpen, onClose }) => {
                 aria-label="Fermer la fenêtre"
                 onClick={onClose}
                 className="absolute inset-0 z-0 bg-slate-900/50 backdrop-blur-sm"
+                style={{ animation: 'backdropIn 0.2s ease-out' }}
             />
             <div
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="access-modal-title"
                 className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl shadow-slate-900/20 ring-1 ring-black/10 overflow-hidden"
+                style={{ animation: 'modalIn 0.25s ease-out' }}
             >
                 <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-purple-50 via-white to-indigo-50">
                     <div className="flex items-start justify-between gap-4">
@@ -188,20 +190,37 @@ const AccessModal = ({ isOpen, onClose }) => {
                         <button
                             type="button"
                             onClick={onClose}
-                            className="w-full sm:w-auto px-5 py-3 rounded-xl border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-300 transition font-medium bg-gray-200 text-base"
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-300 transition-all duration-200 font-medium bg-gray-200 text-base"
                         >
                             Annuler
                         </button>
                         <button
                             type="submit"
                             disabled={isSubmittingAccess}
-                            className="w-full sm:w-auto px-6 py-3 rounded-xl bg-purple-600 text-white font-semibold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition disabled:opacity-60 disabled:cursor-not-allowed text-base"
+                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-purple-600 text-white font-semibold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
                         >
                             {isSubmittingAccess ? 'Envoi en cours...' : "Envoyer la demande"}
                         </button>
                     </div>
                 </form>
             </div>
+
+            <style>{`
+                @keyframes modalIn {
+                    from {
+                        opacity: 0;
+                        transform: translateY(10px) scale(0.98);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
+                @keyframes backdropIn {
+                    from { opacity: 0; }
+                    to { opacity: 1; }
+                }
+            `}</style>
         </div>
     );
 };

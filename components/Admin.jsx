@@ -21,13 +21,21 @@ const MembersView = () => {
     const [isDeletingMember, setIsDeletingMember] = useState(false);
     const [editError, setEditError] = useState('');
     const [deleteError, setDeleteError] = useState('');
+    const [roles, setRoles] = useState([]);
+    const [rolesError, setRolesError] = useState('');
     const [editForm, setEditForm] = useState({
         nom: '',
         prenom: '',
         email: '',
         telephone: '',
         statut: 'actif',
+        role_id: '',
     });
+    const getInitials = (lastName, firstName) => {
+        const first = (lastName || '').trim().charAt(0);
+        const second = (firstName || '').trim().charAt(0);
+        return `${first}${second}`.toUpperCase() || '--';
+    };
 
     const fetchMembers = useCallback(async () => {
         setIsLoadingMembers(true);
@@ -45,9 +53,20 @@ const MembersView = () => {
         }
     }, []);
 
+    const fetchRoles = useCallback(async () => {
+        setRolesError('');
+        try {
+            const data = await apiGet('/api/roles');
+            setRoles(Array.isArray(data) ? data : []);
+        } catch (error) {
+            setRolesError("Impossible de charger les rôles.");
+        }
+    }, []);
+
     useEffect(() => {
         fetchMembers();
-    }, [fetchMembers]);
+        fetchRoles();
+    }, [fetchMembers, fetchRoles]);
 
     const openEditModal = (member) => {
         setSelectedMember(member);
@@ -58,6 +77,7 @@ const MembersView = () => {
             email: member?.email ?? '',
             telephone: member?.telephone ?? '',
             statut: member?.statut ?? 'actif',
+            role_id: member?.role_id ?? member?.role?.id ?? '',
         });
         setIsEditModalOpen(true);
     };
@@ -85,12 +105,14 @@ const MembersView = () => {
         setEditError('');
 
         try {
+            const roleId = editForm.role_id ? Number(editForm.role_id) : null;
             const payload = {
                 nom: editForm.nom.trim(),
                 prenom: editForm.prenom.trim(),
                 email: editForm.email.trim(),
                 telephone: editForm.telephone.trim() || null,
                 statut: editForm.statut,
+                role_id: roleId,
             };
             await apiPut(`/api/users/${selectedMember.id}`, payload);
             await fetchMembers();
@@ -153,9 +175,9 @@ const MembersView = () => {
                     <button
                         type="button"
                         onClick={() => setIsAccessModalOpen(true)}
-                        className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 transition-all shadow-lg hover:shadow-xl"
+                        className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl font-medium flex items-center gap-2 transition-all duration-200 shadow-lg hover:shadow-xl hover:-translate-y-0.5"
                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4" />
                         </svg>
                         Ajouter une adhérente
@@ -188,9 +210,9 @@ const MembersView = () => {
                             <button
                                 key={filter}
                                 onClick={() => setActiveFilter(filter)}
-                                className={`px-6 py-2 rounded-lg text-sm font-medium transition-all ${activeFilter === filter
-                                    ? 'bg-white text-gray-900 shadow-sm'
-                                    : 'text-gray-600 hover:text-gray-900'
+                                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeFilter === filter
+                                        ? 'bg-white text-gray-900 shadow-sm'
+                                        : 'text-gray-600 hover:text-gray-900'
                                     }`}
                             >
                                 {filter}
@@ -201,9 +223,9 @@ const MembersView = () => {
                     {/* Advanced Filters Toggle */}
                     <button
                         onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-                        className="flex items-center gap-2 px-4 py-3 border border-purple-100 rounded-xl hover:bg-purple-50 transition-all text-gray-700 font-medium"
+                        className="flex items-center gap-2 px-4 py-2.5 border border-purple-100 rounded-xl hover:bg-purple-50 transition-all text-gray-700 font-medium"
                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" />
                         </svg>
                         Filtres avancés
@@ -274,7 +296,12 @@ const MembersView = () => {
                                         }}
                                     >
                                         <td className="px-6 py-4">
-                                            <div className="font-semibold text-gray-900">{fullName || '-'}</div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-11 h-11 rounded-full bg-indigo-100 text-indigo-700 font-semibold flex items-center justify-center text-sm tracking-wide shadow-sm ring-1 ring-indigo-200">
+                                                    {getInitials(member?.nom, member?.prenom)}
+                                                </div>
+                                                <div className="font-semibold text-gray-900">{fullName || '-'}</div>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-slate-600">
                                             {member?.telephone ?? '-'}
@@ -300,7 +327,7 @@ const MembersView = () => {
                                                     onClick={() => openEditModal(member)}
                                                     className="p-2 text-purple-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-all"
                                                 >
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                                                     </svg>
                                                 </button>
@@ -309,7 +336,7 @@ const MembersView = () => {
                                                     onClick={() => openDeleteModal(member)}
                                                     className="p-2 text-purple-500 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-all"
                                                 >
-                                                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                                                     </svg>
                                                 </button>
@@ -328,8 +355,8 @@ const MembersView = () => {
                         Affichage de <span className="font-semibold">{totalMembers === 0 ? 0 : startItem}</span> à <span className="font-semibold">{totalMembers === 0 ? 0 : endItem}</span> sur <span className="font-semibold">{totalMembers}</span> adhérentes
                     </div>
                     <div className="flex items-center gap-2">
-                        <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-purple-50 rounded-lg transition-all border border-purple-100 disabled:opacity-50 disabled:cursor-not-allowed">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <button className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-purple-50 rounded-lg transition-all border border-purple-100 disabled:opacity-50 disabled:cursor-not-allowed">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7" />
                             </svg>
                         </button>
@@ -337,7 +364,7 @@ const MembersView = () => {
                             <button
                                 key={page}
                                 onClick={() => setCurrentPage(page)}
-                                className={`w-10 h-10 rounded-lg font-medium transition-all border border-purple-100 ${currentPage === page
+                                className={`w-9 h-9 rounded-lg font-medium transition-all border border-purple-100 ${currentPage === page
                                     ? 'bg-purple-600 text-white shadow-lg'
                                     : 'text-gray-700 hover:bg-purple-50'
                                     }`}
@@ -345,8 +372,8 @@ const MembersView = () => {
                                 {page}
                             </button>
                         ))}
-                        <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-purple-50 rounded-lg transition-all border border-purple-100">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <button className="p-1.5 text-gray-600 hover:text-gray-900 hover:bg-purple-50 rounded-lg transition-all border border-purple-100">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
                             </svg>
                         </button>
@@ -437,6 +464,27 @@ const MembersView = () => {
                                         <option value="pending">Pending</option>
                                     </select>
                                 </div>
+                                <div className="md:col-span-2">
+                                    <label htmlFor="edit-role" className="block text-sm font-semibold text-slate-900 mb-2">
+                                        Rôle
+                                    </label>
+                                    <select
+                                        id="edit-role"
+                                        value={editForm.role_id}
+                                        onChange={(e) => updateEditField('role_id', e.target.value)}
+                                        className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                                    >
+                                        <option value="">Sélectionner un rôle</option>
+                                        {roles.map((role) => (
+                                            <option key={role.id} value={role.id}>
+                                                {role.nom_role}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    {rolesError && (
+                                        <p className="text-xs text-red-600 mt-2">{rolesError}</p>
+                                    )}
+                                </div>
                             </div>
 
                             {editError && (
@@ -449,14 +497,14 @@ const MembersView = () => {
                                 <button
                                     type="button"
                                     onClick={closeEditModal}
-                                    className="w-full sm:w-auto px-5 py-3 rounded-xl border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-300 transition font-medium bg-gray-200 text-base"
+                                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-300 transition-all duration-200 font-medium bg-gray-200 text-base"
                                 >
                                     Annuler
                                 </button>
                                 <button
                                     type="submit"
                                     disabled={isSavingMember}
-                                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-purple-600 text-white font-semibold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition disabled:opacity-60 disabled:cursor-not-allowed text-base"
+                                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-purple-600 text-white font-semibold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
                                 >
                                     {isSavingMember ? 'Mise à jour...' : 'Enregistrer'}
                                 </button>
@@ -498,7 +546,7 @@ const MembersView = () => {
                                 <button
                                     type="button"
                                     onClick={closeDeleteModal}
-                                    className="w-full sm:w-auto px-5 py-3 rounded-xl border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-300 transition font-medium bg-gray-200 text-base"
+                                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-slate-200 text-slate-700 hover:text-slate-900 hover:border-slate-300 transition-all duration-200 font-medium bg-gray-200 text-base"
                                 >
                                     Annuler
                                 </button>
@@ -506,7 +554,7 @@ const MembersView = () => {
                                     type="button"
                                     onClick={handleDeleteMember}
                                     disabled={isDeletingMember}
-                                    className="w-full sm:w-auto px-6 py-3 rounded-xl bg-red-600 text-white font-semibold shadow-lg shadow-red-500/20 hover:bg-red-700 transition disabled:opacity-60 disabled:cursor-not-allowed text-base"
+                                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-red-600 text-white font-semibold shadow-lg shadow-red-500/20 hover:bg-red-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
                                 >
                                     {isDeletingMember ? 'Suppression...' : 'Supprimer'}
                                 </button>
@@ -544,6 +592,11 @@ const PendingMembersView = () => {
     const [pendingError, setPendingError] = useState('');
     const [actionError, setActionError] = useState('');
     const [processingId, setProcessingId] = useState(null);
+    const getInitials = (lastName, firstName) => {
+        const first = (lastName || '').trim().charAt(0);
+        const second = (firstName || '').trim().charAt(0);
+        return `${first}${second}`.toUpperCase() || '--';
+    };
 
     const fetchPendingMembers = useCallback(async () => {
         setIsLoadingPending(true);
@@ -661,7 +714,12 @@ const PendingMembersView = () => {
                                 return (
                                     <tr key={member.id} className="hover:bg-purple-50/40 transition-colors">
                                         <td className="px-6 py-4">
-                                            <div className="font-semibold text-gray-900">{fullName || '-'}</div>
+                                            <div className="flex items-center gap-3">
+                                                <div className="w-11 h-11 rounded-full bg-teal-100 text-teal-700 font-semibold flex items-center justify-center text-sm tracking-wide shadow-sm ring-1 ring-teal-200">
+                                                    {getInitials(member?.nom, member?.prenom)}
+                                                </div>
+                                                <div className="font-semibold text-gray-900">{fullName || '-'}</div>
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-slate-600">
                                             {member?.telephone ?? '-'}
@@ -683,7 +741,7 @@ const PendingMembersView = () => {
                                                     type="button"
                                                     onClick={() => handleAcceptPending(member.id)}
                                                     disabled={processingId === member.id}
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    className="px-3.5 py-2 rounded-lg text-sm font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed"
                                                 >
                                                     Accepter
                                                 </button>
@@ -691,7 +749,7 @@ const PendingMembersView = () => {
                                                     type="button"
                                                     onClick={() => handleRejectPending(member.id)}
                                                     disabled={processingId === member.id}
-                                                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-60 disabled:cursor-not-allowed"
+                                                    className="px-3.5 py-2 rounded-lg text-sm font-semibold bg-red-600 text-white hover:bg-red-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed"
                                                 >
                                                     Rejeter
                                                 </button>
@@ -747,7 +805,7 @@ const Admin = ({ initialSectionId = 'members' }) => {
             headerSubtitle: 'Vue administratrice',
             component: AdminDashboard,
             icon: (
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 13h6V4H4v9zm10 7h6V11h-6v9zM4 20h6v-5H4v5zm10-9h6V4h-6v7z" />
                 </svg>
             ),
@@ -759,7 +817,7 @@ const Admin = ({ initialSectionId = 'members' }) => {
             headerSubtitle: 'Vue administratrice',
             component: MembersView,
             icon: (
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20a4 4 0 00-4-4H7a4 4 0 00-4 4m10-10a4 4 0 11-8 0 4 4 0 018 0m10 10v-1a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
                 </svg>
             ),
@@ -771,7 +829,7 @@ const Admin = ({ initialSectionId = 'members' }) => {
             headerSubtitle: 'Validation des adhérentes',
             component: PendingMembersView,
             icon: (
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3M12 3a9 9 0 100 18 9 9 0 000-18z" />
                 </svg>
             ),
@@ -828,7 +886,7 @@ const Admin = ({ initialSectionId = 'members' }) => {
                                     </div>
                                 </div>
                                 <div className="flex items-center gap-4">
-                                    <button className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-xl text-sm font-medium transition-all shadow-sm">
+                                    <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-xl text-sm font-medium transition-all duration-200 shadow-sm hover:-translate-y-0.5">
                                         Mon Profil
                                     </button>
                                     <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-purple-200">

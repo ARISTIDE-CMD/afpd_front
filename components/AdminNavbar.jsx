@@ -28,8 +28,8 @@ const AdminNavbar = ({
                 <div className="h-full flex flex-col">
                     <div className="flex items-center justify-between px-4 py-4 border-b border-purple-100">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-purple-700 rounded-xl flex items-center justify-center">
-                                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+                            <div className="w-11 h-11 bg-gradient-to-br from-purple-600 to-purple-700 rounded-xl flex items-center justify-center">
+                                <svg className="w-7 h-7 text-white" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
                                 </svg>
                             </div>
@@ -42,7 +42,7 @@ const AdminNavbar = ({
                             onClick={() => setIsSidebarMobileOpen(false)}
                             className="lg:hidden p-2 rounded-lg hover:bg-purple-50 text-gray-600"
                         >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                             </svg>
                         </button>
@@ -59,7 +59,7 @@ const AdminNavbar = ({
                                         onSelectSection(item.id);
                                         setIsSidebarMobileOpen(false);
                                     }}
-                                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${isActive
+                                    className={`w-full flex items-center gap-3 px-2.5 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 ${isActive
                                             ? 'bg-purple-50 text-purple-700'
                                             : 'text-gray-600 hover:bg-purple-50/70 hover:text-gray-900'
                                         }`}
@@ -82,9 +82,9 @@ const AdminNavbar = ({
                         <button
                             type="button"
                             onClick={onLogout}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm font-medium text-purple-600 bg-red-100 hover:bg-purple-50 transition-colors"
+                            className="w-full flex items-center justify-center gap-2 px-2.5 py-2 rounded-xl text-sm font-medium text-purple-600 bg-red-100 hover:bg-purple-50 transition-all duration-200"
                         >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h6a2 2 0 012 2v1" />
                             </svg>
                             <span className={`${isSidebarOpen ? 'block' : 'hidden'}`}>Déconnexion</span>

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AccessModal from '../components/AccessModal';
-import { apiPost } from '../src/api';
+import { apiGet, apiPost } from '../src/api';
 
 const HomePage = () => {
     const [email, setEmail] = useState('');
@@ -13,6 +13,28 @@ const HomePage = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const navigate = useNavigate();
 
+    const normalizeRole = (role) => {
+        if (!role) return '';
+        return role
+            .toString()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+    };
+
+    const resolveRoleName = async (roleId, fallbackRoleName) => {
+        if (fallbackRoleName) return fallbackRoleName;
+        if (!roleId) return '';
+        try {
+            const roles = await apiGet('/api/roles');
+            if (!Array.isArray(roles)) return '';
+            const match = roles.find((role) => role?.id === roleId);
+            return match?.nom_role || '';
+        } catch (error) {
+            return '';
+        }
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setErrorMessage('');
@@ -21,10 +43,25 @@ const HomePage = () => {
         try {
             // setAuthStorage(rememberMe);
             const data = await apiPost('/api/login', { email, password });
+            const roleId = data?.user?.role_id;
+            const roleName =
+                data?.user?.role?.nom_role ||
+                data?.role?.nom_role ||
+                data?.user?.role ||
+                data?.role ||
+                '';
+            const resolvedRoleName = await resolveRoleName(roleId, roleName);
+            const normalizedRole = normalizeRole(resolvedRoleName);
 
             // setToken(data?.token);
             // setUser(data?.user);
-            navigate('/admin');
+            if (normalizedRole.includes('admin')) {
+                navigate('/admin');
+            } else if (normalizedRole.includes('tresoriere') || normalizedRole.includes('tresorier')) {
+                navigate('/tresorier');
+            } else {
+                setErrorMessage("Accès non autorisé pour ce rôle.");
+            }
         } catch (error) {
             const status = error?.status;
             if (status === 403) {
