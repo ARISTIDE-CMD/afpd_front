@@ -1,6 +1,7 @@
 import HomePage from '../components/HomePage';
 import Admin from '../components/Admin';
 import CotisationsTracker from '../components/TresorierDashboard'
+import CommunityManagerDashboard from '../components/CommunityManagerDashboard';
 
 const AdminDashboardRoute = () => <Admin initialSectionId="dashboard" />;
 
@@ -28,6 +29,12 @@ export const routes = [
         path: '/tresorier',
         element: CotisationsTracker,
         name: 'Suivi des Cotisations',
+    },
+    {
+        id: 'community-manager',
+        path: '/community-manager',
+        element: CommunityManagerDashboard,
+        name: 'Community Manager',
     }
 
     // Ajoute tes autres routes ici

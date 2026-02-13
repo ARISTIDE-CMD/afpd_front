@@ -1,8 +1,28 @@
-const API_BASE_URL = 'http://127.0.0.1:8000';
+export const API_BASE_URL = 'http://127.0.0.1:8000';
+const AUTH_TOKEN_STORAGE_KEY = 'afpd_auth_token';
 
 interface FetchOptions extends RequestInit {
     timeout?: number;
 }
+
+export const getAuthToken = (): string => {
+    if (typeof window === 'undefined') return '';
+    return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || '';
+};
+
+export const setAuthToken = (token?: string | null) => {
+    if (typeof window === 'undefined') return;
+    if (!token) {
+        window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+        return;
+    }
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, token);
+};
+
+export const clearAuthToken = () => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
+};
 
 export const apiFetch = async (
     endpoint: string,
@@ -14,6 +34,10 @@ export const apiFetch = async (
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
+    const isFormDataBody =
+        typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
+    const authToken = getAuthToken();
+    const authHeader = authToken ? { Authorization: `Bearer ${authToken}` } : {};
 
     try {
         const response = await fetch(url, {
@@ -22,10 +46,16 @@ export const apiFetch = async (
             // Utiliser 'same-origin' au lieu de 'include' pour éviter les erreurs CORS
             // Une fois le backend configuré avec CORS strict, passer à 'include'
             credentials: (fetchOptions as any).credentials || 'same-origin',
-            headers: {
-                'Content-Type': 'application/json',
-                ...fetchOptions.headers,
-            },
+            headers: isFormDataBody
+                ? {
+                    ...authHeader,
+                    ...fetchOptions.headers,
+                }
+                : {
+                    'Content-Type': 'application/json',
+                    ...authHeader,
+                    ...fetchOptions.headers,
+                },
         });
 
         if (!response.ok) {
@@ -98,6 +128,19 @@ export const apiDelete = async (endpoint: string, options?: FetchOptions) => {
     const response = await apiFetch(endpoint, {
         ...options,
         method: 'DELETE',
+    });
+    return response.json();
+};
+
+export const apiPostForm = async (
+    endpoint: string,
+    data: FormData,
+    options?: FetchOptions
+) => {
+    const response = await apiFetch(endpoint, {
+        ...options,
+        method: 'POST',
+        body: data,
     });
     return response.json();
 };

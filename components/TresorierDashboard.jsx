@@ -1,21 +1,47 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Search, Bell, Plus, Filter, FileText, FileSpreadsheet, MoreVertical, ChevronLeft, ChevronRight } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Search,
+  Bell,
+  Plus,
+  Filter,
+  FileText,
+  FileSpreadsheet,
+  MoreVertical,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  CircleDollarSign,
+  AlertTriangle,
+  Users,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch, apiGet, apiPost } from '../src/api';
+import { apiFetch, apiGet, apiPost, clearAuthToken } from '../src/api';
+import AFPDLogo from './AFPDLogo';
+
+const PAYMENT_DEADLINE_HOURS = 24;
+const PAYMENT_DEADLINE_MS = PAYMENT_DEADLINE_HOURS * 60 * 60 * 1000;
 
 const CotisationsTracker = () => {
   const [activeTab, setActiveTab] = useState('tous');
   const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 4;
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOption, setSortOption] = useState('date_desc');
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const [isArchiveOpen, setIsArchiveOpen] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [isAddPaymentOpen, setIsAddPaymentOpen] = useState(false);
   const [payments, setPayments] = useState([]);
   const [isLoadingPayments, setIsLoadingPayments] = useState(true);
   const [paymentsError, setPaymentsError] = useState('');
   const [users, setUsers] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(true);
   const [usersError, setUsersError] = useState('');
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState('');
   const [paymentForm, setPaymentForm] = useState({ user_id: '', montant: '' });
+  const hasFetchedRef = useRef(false);
   const navigate = useNavigate();
 
   const getInitials = (lastName, firstName) => {
@@ -24,29 +50,43 @@ const CotisationsTracker = () => {
     return `${first}${second}`.toUpperCase() || '--';
   };
 
-  const normalizeStatus = (value) => {
-    if (!value) return '';
-    return value
-      .toString()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
-  };
+  const parseAmount = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    if (typeof value === 'number') {
+      return Number.isFinite(value) ? value : null;
+    }
 
-  const mapStatus = (value) => {
-    const normalized = normalizeStatus(value);
-    if (!normalized) return '';
-    if (['paye', 'payee', 'paid', 'valide', 'validee'].includes(normalized)) return 'paid';
-    if (['retard', 'late'].includes(normalized)) return 'late';
-    if (['attente', 'pending', 'en_attente'].includes(normalized)) return 'pending';
-    return '';
+    const raw = String(value).trim();
+    if (!raw) return null;
+
+    const cleaned = raw
+      .replace(/\s+/g, '')
+      .replace(/[^\d,.-]/g, '');
+    if (!cleaned) return null;
+
+    let normalized = cleaned;
+    const hasComma = normalized.includes(',');
+    const hasDot = normalized.includes('.');
+
+    if (hasComma && hasDot) {
+      const lastComma = normalized.lastIndexOf(',');
+      const lastDot = normalized.lastIndexOf('.');
+      normalized = lastComma > lastDot
+        ? normalized.replace(/\./g, '').replace(',', '.')
+        : normalized.replace(/,/g, '');
+    } else if (hasComma) {
+      normalized = normalized.replace(',', '.');
+    }
+
+    const parsed = Number(normalized);
+    return Number.isNaN(parsed) ? null : parsed;
   };
 
   const formatAmount = (value) => {
     if (value === null || value === undefined || value === '') return '-';
     const numberValue = Number(value);
     if (Number.isNaN(numberValue)) return `${value}`;
-    return `${numberValue.toFixed(2)} €`;
+    return `${numberValue.toFixed(2)} F CFA`;
   };
 
   const formatDate = (value) => {
@@ -56,13 +96,63 @@ const CotisationsTracker = () => {
     return parsed.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
+  const formatTime = (value) => {
+    if (!value) return '-';
+    if (typeof value === 'string' && /^\d{1,2}:\d{2}/.test(value.trim())) {
+      return value.trim();
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return `${value}`;
+    return parsed.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const getDateMs = (value) => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  };
+
+  const getPaymentDateValue = (payment) => (
+    payment?.date ??
+    payment?.date_paiement ??
+    payment?.payment_date ??
+    payment?.created_at ??
+    payment?.createdAt ??
+    payment?.paid_at ??
+    payment?.timestamp
+  );
+
+  const getPaymentTimeValue = (payment, fallbackDateValue) => (
+    payment?.heure ??
+    payment?.time ??
+    payment?.heure_paiement ??
+    payment?.payment_time_local ??
+    payment?.payment_time ??
+    fallbackDateValue
+  );
+
+  const getPaymentAmountValue = (payment) => (
+    parseAmount(
+      payment?.montant ??
+      payment?.amount ??
+      payment?.montant_cotisation ??
+      payment?.montant_total ??
+      payment?.total_amount,
+    )
+  );
+
   const fetchPayments = async () => {
     setIsLoadingPayments(true);
     setPaymentsError('');
     try {
       const data = await apiGet('/api/cotisations');
-      const list = Array.isArray(data) ? data : data?.data ?? [];
-      setPayments(Array.isArray(list) ? list : []);
+      const list = Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.data) ? data.data : null);
+      if (!Array.isArray(list)) {
+        throw new Error('Format de réponse invalide pour les paiements.');
+      }
+      setPayments(list);
     } catch (error) {
       setPaymentsError("Impossible de charger les paiements.");
     } finally {
@@ -71,20 +161,30 @@ const CotisationsTracker = () => {
   };
 
   const fetchUsers = async () => {
+    setIsLoadingUsers(true);
     setUsersError('');
     try {
       const data = await apiGet('/api/users');
-      const list = Array.isArray(data) ? data : data?.data ?? [];
-      const activeUsers = Array.isArray(list)
-        ? list.filter((user) => (user?.statut ?? '').toLowerCase() === 'actif')
+      const list = Array.isArray(data)
+        ? data
+        : (Array.isArray(data?.data) ? data.data : null);
+      if (!Array.isArray(list)) {
+        throw new Error('Format de réponse invalide pour les utilisateurs.');
+      }
+      const eligibleUsers = Array.isArray(list)
+        ? list.filter((user) => (user?.statut ?? '').toLowerCase() !== 'pending')
         : [];
-      setUsers(activeUsers);
+      setUsers(eligibleUsers);
     } catch (error) {
       setUsersError("Impossible de charger les utilisateurs.");
+    } finally {
+      setIsLoadingUsers(false);
     }
   };
 
   useEffect(() => {
+    if (hasFetchedRef.current) return;
+    hasFetchedRef.current = true;
     fetchPayments();
     fetchUsers();
   }, []);
@@ -97,6 +197,7 @@ const CotisationsTracker = () => {
     } catch (error) {
       console.error('Erreur lors de la déconnexion:', error);
     } finally {
+      clearAuthToken();
       setIsLoggingOut(false);
       navigate('/');
     }
@@ -127,33 +228,147 @@ const CotisationsTracker = () => {
     }
   };
 
+  const usersById = useMemo(() => {
+    const map = new Map();
+    users.forEach((user) => {
+      if (user?.id === null || user?.id === undefined) return;
+      map.set(`${user.id}`, user);
+    });
+    return map;
+  }, [users]);
+
+  const paymentEntries = useMemo(() => {
+    return payments
+      .map((payment, index) => {
+        const userId = payment?.user_id ?? payment?.membre_id ?? payment?.member_id ?? payment?.adherente_id;
+        if (userId === null || userId === undefined || userId === '') return null;
+
+        const userKey = `${userId}`;
+        const linkedUser = usersById.get(userKey);
+        const amountValue = getPaymentAmountValue(payment);
+        const hasPositiveAmount = amountValue !== null && amountValue > 0;
+        if (!hasPositiveAmount) return null;
+
+        const dateValue = getPaymentDateValue(payment);
+        const dateMs = getDateMs(dateValue);
+        const timeValue = getPaymentTimeValue(payment, dateValue);
+        const fullName = `${payment?.nom ?? linkedUser?.nom ?? ''} ${payment?.prenom ?? linkedUser?.prenom ?? ''}`.trim();
+
+        return {
+          id: payment?.id ?? `${userKey}-${dateValue ?? index}`,
+          userId: userKey,
+          memberId: userKey,
+          name: fullName || '-',
+          initials: getInitials(payment?.nom ?? linkedUser?.nom, payment?.prenom ?? linkedUser?.prenom),
+          dateMs,
+          date: formatDate(dateValue),
+          time: formatTime(timeValue),
+          amountValue,
+          amount: formatAmount(amountValue),
+          period: payment?.periode ?? payment?.period ?? '-',
+        };
+      })
+      .filter(Boolean);
+  }, [payments, usersById]);
+
+  const latestPaidPaymentByUserId = useMemo(() => {
+    const map = new Map();
+    paymentEntries.forEach((entry) => {
+      const current = map.get(entry.userId);
+      if (!current) {
+        map.set(entry.userId, entry);
+        return;
+      }
+      if (current.dateMs === null && entry.dateMs !== null) {
+        map.set(entry.userId, entry);
+        return;
+      }
+      if (current.dateMs !== null && entry.dateMs !== null && entry.dateMs > current.dateMs) {
+        map.set(entry.userId, entry);
+      }
+    });
+    return map;
+  }, [paymentEntries]);
+
+  const activePaymentByUserId = useMemo(() => {
+    const nowMs = Date.now();
+    const map = new Map();
+    paymentEntries.forEach((entry) => {
+      const isActivePayment = entry.dateMs !== null && (nowMs - entry.dateMs) <= PAYMENT_DEADLINE_MS;
+      if (!isActivePayment) return;
+      const current = map.get(entry.userId);
+      if (!current || (current.dateMs !== null && entry.dateMs !== null && entry.dateMs > current.dateMs)) {
+        map.set(entry.userId, entry);
+      }
+    });
+    return map;
+  }, [paymentEntries]);
+
+  const archivedPaymentsDisplay = useMemo(() => {
+    const nowMs = Date.now();
+    return paymentEntries
+      .filter((entry) => entry.dateMs === null || (nowMs - entry.dateMs) > PAYMENT_DEADLINE_MS)
+      .sort((a, b) => {
+        if (a.dateMs === null && b.dateMs === null) return 0;
+        if (a.dateMs === null) return 1;
+        if (b.dateMs === null) return -1;
+        return b.dateMs - a.dateMs;
+      });
+  }, [paymentEntries]);
+
+  const archivedPaymentsFiltered = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return archivedPaymentsDisplay;
+    return archivedPaymentsDisplay.filter((payment) => {
+      const name = payment.name?.toLowerCase() ?? '';
+      const memberId = String(payment.memberId ?? '').toLowerCase();
+      return name.includes(query) || memberId.includes(query);
+    });
+  }, [archivedPaymentsDisplay, searchQuery]);
+
   const paymentsDisplay = useMemo(() => {
-    return payments.map((payment) => {
-      const userId = payment?.user_id ?? payment?.membre_id ?? payment?.member_id ?? payment?.adherente_id;
-      const user =
-        payment?.user ||
-        payment?.membre ||
-        payment?.member ||
-        payment?.adherente ||
-        users.find((item) => item?.id === userId) ||
-        null;
-      const fullName = `${payment?.nom ?? user?.nom ?? ''} ${payment?.prenom ?? user?.prenom ?? ''}`.trim();
-      const memberId = payment?.memberId || payment?.member_id || userId || '-';
-      const statusValue = payment?.statut ?? payment?.status;
+    const nowMs = Date.now();
+
+    return users.map((user) => {
+      const userId = user?.id;
+      const userKey = userId === null || userId === undefined ? '' : `${userId}`;
+      const activePayment = userKey ? (activePaymentByUserId.get(userKey) ?? null) : null;
+      const latestPaidPayment = userKey ? (latestPaidPaymentByUserId.get(userKey) ?? null) : null;
+
+      const registrationDateValue =
+        user?.created_at ??
+        user?.createdAt ??
+        user?.date_inscription ??
+        user?.date;
+      const registrationDateMs = getDateMs(registrationDateValue);
+
+      const referenceDateMs = activePayment?.dateMs ?? latestPaidPayment?.dateMs ?? registrationDateMs;
+      const isLate = !activePayment && referenceDateMs !== null && (nowMs - referenceDateMs) > PAYMENT_DEADLINE_MS;
+      const computedStatus = activePayment ? 'paid' : (isLate ? 'late' : 'pending');
+
+      const fullName = `${user?.nom ?? ''} ${user?.prenom ?? ''}`.trim();
+
       return {
-        id: payment?.id ?? `${userId}-${payment?.date ?? payment?.created_at ?? Math.random()}`,
+        id: userId ?? `member-${fullName || 'unknown'}`,
         initials: getInitials(user?.nom, user?.prenom),
         name: fullName || '-',
-        memberId: memberId ? `ID: ${memberId}` : 'ID: -',
-        date: formatDate(payment?.date ?? payment?.created_at),
-        period: payment?.periode ?? payment?.period ?? '-',
-        amount: formatAmount(payment?.montant ?? payment?.amount),
-        status: mapStatus(statusValue),
-        rawStatus: statusValue ?? '',
-        color: '#E9D5FF',
+        sortName: (fullName || '').toLowerCase(),
+        memberId: userKey || '-',
+        date: activePayment?.date ?? latestPaidPayment?.date ?? formatDate(registrationDateValue),
+        sortDateMs: referenceDateMs,
+        time: activePayment?.time ?? latestPaidPayment?.time ?? formatTime(registrationDateValue),
+        period: activePayment?.period ?? '-',
+        amount: activePayment?.amount ?? latestPaidPayment?.amount ?? '-',
+        amountValue: activePayment?.amountValue ?? latestPaidPayment?.amountValue ?? null,
+        hasArchivedPayment: !activePayment && !!latestPaidPayment,
+        lastPaymentDate: latestPaidPayment?.date ?? '-',
+        lastPaymentTime: latestPaidPayment?.time ?? '-',
+        status: computedStatus,
+        rawStatus: computedStatus,
+        color: '#F8D7EA',
       };
     });
-  }, [payments, users]);
+  }, [users, activePaymentByUserId, latestPaidPaymentByUserId]);
 
   const filteredPaymentsDisplay = useMemo(() => {
     if (activeTab === 'payes') {
@@ -168,35 +383,114 @@ const CotisationsTracker = () => {
     return paymentsDisplay;
   }, [activeTab, paymentsDisplay]);
 
-  const stats = [
-    {
-      title: "TOTAL COLLECTÉ (ANNUEL)",
-      amount: "15.400,00 €",
-      change: "+12%",
-      subtitle: "Dernière mise à jour: Aujourd'hui, 09:41",
-      icon: "💰",
-      color: "purple"
-    },
-    {
-      title: "IMPAYÉS / RETARD",
-      amount: "2.150,00 €",
-      change: "+5%",
-      subtitle: "14 membres en retard de paiement",
-      icon: "⚠️",
-      color: "orange"
-    },
-    {
-      title: "MEMBRES ACTIVES",
-      amount: "124",
-      change: "-2%",
-      subtitle: "Nouvelles adhésions ce mois: 3",
-      icon: "👥",
-      color: "blue"
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab, paymentsDisplay.length, searchQuery, sortOption]);
+
+  const searchedPaymentsDisplay = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return filteredPaymentsDisplay;
+    return filteredPaymentsDisplay.filter((payment) => {
+      const name = payment.name?.toLowerCase() ?? '';
+      const memberId = String(payment.memberId ?? '').toLowerCase();
+      return name.includes(query) || memberId.includes(query);
+    });
+  }, [filteredPaymentsDisplay, searchQuery]);
+
+  const sortedPaymentsDisplay = useMemo(() => {
+    const list = [...searchedPaymentsDisplay];
+    if (sortOption === 'date_asc') {
+      list.sort((a, b) => {
+        const aDate = a.sortDateMs;
+        const bDate = b.sortDateMs;
+        if (aDate === null && bDate === null) return 0;
+        if (aDate === null) return 1;
+        if (bDate === null) return -1;
+        return aDate - bDate;
+      });
     }
-  ];
+    if (sortOption === 'date_desc') {
+      list.sort((a, b) => {
+        const aDate = a.sortDateMs;
+        const bDate = b.sortDateMs;
+        if (aDate === null && bDate === null) return 0;
+        if (aDate === null) return 1;
+        if (bDate === null) return -1;
+        return bDate - aDate;
+      });
+    }
+    if (sortOption === 'name_asc') {
+      list.sort((a, b) => a.sortName.localeCompare(b.sortName, 'fr', { sensitivity: 'base' }));
+    }
+    if (sortOption === 'name_desc') {
+      list.sort((a, b) => b.sortName.localeCompare(a.sortName, 'fr', { sensitivity: 'base' }));
+    }
+    return list;
+  }, [searchedPaymentsDisplay, sortOption]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedPaymentsDisplay.length / itemsPerPage));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const paginatedPaymentsDisplay = useMemo(() => {
+    const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+    return sortedPaymentsDisplay.slice(startIndex, startIndex + itemsPerPage);
+  }, [sortedPaymentsDisplay, safeCurrentPage]);
+
+  const stats = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    let totalCollected = 0;
+    let latestPaymentMs = null;
+
+    payments.forEach((payment) => {
+      const amount = getPaymentAmountValue(payment);
+      const dateMs = getDateMs(getPaymentDateValue(payment));
+      if (amount !== null && amount > 0) {
+        const yearMatch = dateMs ? new Date(dateMs).getFullYear() === currentYear : true;
+        if (yearMatch) totalCollected += amount;
+      }
+      if (dateMs) {
+        latestPaymentMs = latestPaymentMs === null ? dateMs : Math.max(latestPaymentMs, dateMs);
+      }
+    });
+
+    const lateOrPendingCount = paymentsDisplay.filter(
+      (payment) => payment.status === 'late' || payment.status === 'pending',
+    ).length;
+
+    const lastUpdateLabel = latestPaymentMs
+      ? `Dernière mise à jour: ${formatDate(latestPaymentMs)} ${formatTime(latestPaymentMs)}`
+      : 'Dernière mise à jour: -';
+
+    return [
+      {
+        title: "TOTAL COLLECTÉ (ANNUEL)",
+        amount: formatAmount(totalCollected),
+        change: '',
+        subtitle: lastUpdateLabel,
+        icon: CircleDollarSign,
+        color: "brand"
+      },
+      {
+        title: "IMPAYÉS / RETARD",
+        amount: `${lateOrPendingCount}`,
+        change: '',
+        subtitle: `${lateOrPendingCount} adhérente(s) en attente ou en retard`,
+        icon: AlertTriangle,
+        color: "orange"
+      },
+      {
+        title: "ADHÉRENTES SUIVIES",
+        amount: `${users.length}`,
+        change: '',
+        subtitle: "Adhérentes suivies",
+        icon: Users,
+        color: "rose"
+      }
+    ];
+  }, [payments, paymentsDisplay, users]);
 
   const getStatusBadge = (status) => {
     switch(status) {
+      case true:
       case 'paid':
         return (
           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium" 
@@ -213,6 +507,7 @@ const CotisationsTracker = () => {
             En retard
           </span>
         );
+      case false:
       case 'pending':
         return (
           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium"
@@ -232,18 +527,30 @@ const CotisationsTracker = () => {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F9FAFB' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#FDF5FA' }}>
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-8 py-4 sticky top-0 z-30">
+      <header className="bg-white border-b border-fuchsia-100 px-8 py-4 sticky top-0 z-30">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold text-gray-900">Suivi des Cotisations</h1>
+          <div className="flex items-center gap-4">
+          <AFPDLogo compact showSubtitle={false} />
+          <h1 className="text-2xl font-semibold text-gray-900">Tableau Trésorière</h1>
+          </div>
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-xl bg-fuchsia-50/60 text-sm text-gray-700 justify-start`}>
+            <span className="relative flex h-2.5 w-2.5">
+              <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70 animate-ping" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            </span>
+            <span className={`block`}>Connectée</span>
+          </div>
           <div className="flex items-center gap-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
               <input
                 type="text"
                 placeholder="Rechercher une membre ou une transaction..."
-                className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-96 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-gray-300 rounded-lg w-96 focus:outline-none focus:ring-2 focus:ring-fuchsia-500 focus:border-transparent"
                 style={{ fontSize: '14px' }}
               />
             </div>
@@ -262,7 +569,7 @@ const CotisationsTracker = () => {
               type="button"
               onClick={() => setIsAddPaymentOpen(true)}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-white font-medium hover:opacity-90 transition-opacity"
-                    style={{ backgroundColor: '#9333EA' }}>
+                    style={{ backgroundColor: '#B8328F' }}>
               <Plus size={20} />
               Enregistrer un paiement
             </button>
@@ -280,12 +587,20 @@ const CotisationsTracker = () => {
                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                   {stat.title}
                 </span>
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center text-2xl"
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center"
                      style={{ 
-                       backgroundColor: stat.color === 'purple' ? '#F3E8FF' : 
-                                       stat.color === 'orange' ? '#FFF7ED' : '#EFF6FF'
+                       backgroundColor: stat.color === 'brand' ? '#FCE7F3' : 
+                                       stat.color === 'orange' ? '#FFF1F2' : '#FDF2F8'
                      }}>
-                  {stat.icon}
+                  <stat.icon
+                    className={`w-5 h-5 ${
+                      stat.color === 'brand'
+                        ? 'text-fuchsia-700'
+                        : stat.color === 'orange'
+                        ? 'text-rose-700'
+                        : 'text-pink-700'
+                    }`}
+                  />
                 </div>
               </div>
               <div className="flex items-end justify-between">
@@ -297,11 +612,13 @@ const CotisationsTracker = () => {
                     {stat.subtitle}
                   </div>
                 </div>
-                <div className={`text-sm font-semibold ${
-                  stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'
-                }`}>
-                  {stat.change}
-                </div>
+                {stat.change ? (
+                  <div className={`text-sm font-semibold ${
+                    stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {stat.change}
+                  </div>
+                ) : null}
               </div>
             </div>
           ))}
@@ -314,8 +631,8 @@ const CotisationsTracker = () => {
             <div className="flex items-center justify-between">
               <div className="flex gap-8">
                 {[
-                  { key: 'tous', label: 'Tous les paiements' },
-                  { key: 'payes', label: 'Payés' },
+                  { key: 'tous', label: 'Toutes les adhérentes' },
+                  { key: 'payes', label: 'Payés (24h)' },
                   { key: 'attente', label: 'En attente' },
                   { key: 'retard', label: 'En retard' }
                 ].map((tab) => (
@@ -324,7 +641,7 @@ const CotisationsTracker = () => {
                     onClick={() => setActiveTab(tab.key)}
                     className={`py-4 text-sm font-medium border-b-2 transition-colors ${
                       activeTab === tab.key
-                        ? 'border-purple-600 text-purple-600'
+                        ? 'border-fuchsia-600 text-fuchsia-600'
                         : 'border-transparent text-gray-500 hover:text-gray-700'
                     }`}
                   >
@@ -332,11 +649,43 @@ const CotisationsTracker = () => {
                   </button>
                 ))}
               </div>
-              <div className="flex items-center gap-3">
-                <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
-                  <Filter size={16} />
-                  Filtres
-                </button>
+            <div className="flex items-center gap-3">
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsSortMenuOpen((prev) => !prev)}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors"
+                  >
+                    <Filter size={16} />
+                    Filtres
+                  </button>
+                  {isSortMenuOpen && (
+                    <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-20">
+                      {[
+                        { value: 'date_desc', label: 'Date décroissante' },
+                        { value: 'date_asc', label: 'Date croissante' },
+                        { value: 'name_asc', label: 'Nom A → Z' },
+                        { value: 'name_desc', label: 'Nom Z → A' }
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setSortOption(option.value);
+                            setIsSortMenuOpen(false);
+                          }}
+                          className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                            sortOption === option.value
+                              ? 'bg-fuchsia-50 text-fuchsia-700 font-semibold'
+                              : 'text-gray-700 hover:bg-gray-50'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
                   <FileText size={16} />
                   PDF
@@ -345,8 +694,21 @@ const CotisationsTracker = () => {
                   <FileSpreadsheet size={16} />
                   Excel
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsArchiveOpen((prev) => !prev)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-fuchsia-700 bg-fuchsia-50 hover:bg-fuchsia-100 rounded-lg transition-colors"
+                >
+                  {isArchiveOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  {isArchiveOpen ? 'Masquer les archives' : `Archives (${archivedPaymentsDisplay.length})`}
+                </button>
               </div>
             </div>
+          </div>
+          <div className="px-6 py-3 bg-rose-50 border-b border-rose-100">
+            <p className="text-xs text-rose-700">
+              Délai actif de paiement: {PAYMENT_DEADLINE_HOURS}h. Après ce délai, le paiement passe en archive et l'adhérente peut être enregistrée de nouveau.
+            </p>
           </div>
 
           {/* Table */}
@@ -361,7 +723,7 @@ const CotisationsTracker = () => {
                     Date
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                    Période
+                    Heure
                   </th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
                     Montant
@@ -375,28 +737,35 @@ const CotisationsTracker = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-200">
-                {isLoadingPayments && (
+                {(isLoadingPayments || isLoadingUsers) && (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      Chargement des paiements...
+                      Chargement des adhérentes...
                     </td>
                   </tr>
                 )}
-                {!isLoadingPayments && paymentsError && (
+                {!isLoadingPayments && !isLoadingUsers && paymentsError && (
                   <tr>
                     <td colSpan={6} className="px-6 py-8 text-center text-red-600">
                       {paymentsError}
                     </td>
                   </tr>
                 )}
-                {!isLoadingPayments && !paymentsError && filteredPaymentsDisplay.length === 0 && (
+                {!isLoadingPayments && !isLoadingUsers && usersError && (
                   <tr>
-                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
-                      Aucun paiement enregistré.
+                    <td colSpan={6} className="px-6 py-8 text-center text-red-600">
+                      {usersError}
                     </td>
                   </tr>
                 )}
-                {!isLoadingPayments && !paymentsError && filteredPaymentsDisplay.map((payment) => (
+                {!isLoadingPayments && !isLoadingUsers && !paymentsError && !usersError && sortedPaymentsDisplay.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-8 text-center text-gray-500">
+                      Aucune adhérente trouvée.
+                    </td>
+                  </tr>
+                )}
+                {!isLoadingPayments && !isLoadingUsers && !paymentsError && !usersError && paginatedPaymentsDisplay.map((payment) => (
                   <tr key={payment.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -407,12 +776,25 @@ const CotisationsTracker = () => {
                           {payment.initials}
                         </div>
                         <div>
-                          <div className="text-sm font-medium text-gray-900">
-                            {payment.name}
+                          <div className="text-sm font-medium text-gray-900 flex items-center gap-2">
+                            {payment.status === 'pending' && (
+                              <span
+                                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold"
+                                style={{ backgroundColor: '#FEF3C7', color: '#92400E' }}
+                              >
+                                En attente
+                              </span>
+                            )}
+                            <span>{payment.name}</span>
                           </div>
                           <div className="text-xs text-gray-500">
                             ID: {payment.memberId}
                           </div>
+                          {payment.hasArchivedPayment && (
+                            <div className="text-xs text-fuchsia-700 mt-1">
+                              Dernier paiement archivé: {payment.lastPaymentDate} {payment.lastPaymentTime}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -420,7 +802,7 @@ const CotisationsTracker = () => {
                       {payment.date}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
-                      {payment.period}
+                      {payment.time}
                     </td>
                     <td className="px-6 py-4 text-sm font-semibold text-gray-900">
                       {payment.amount}
@@ -442,34 +824,93 @@ const CotisationsTracker = () => {
           {/* Pagination */}
           <div className="px-6 py-4 border-t border-gray-200 flex items-center justify-between">
             <div className="text-sm text-gray-500">
-              Affichage de 4 sur 124 membres
+              Affichage de {paginatedPaymentsDisplay.length} sur {sortedPaymentsDisplay.length} adhérentes
             </div>
             <div className="flex items-center gap-2">
               <button 
                 className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
-                disabled={currentPage === 1}
+                disabled={safeCurrentPage === 1}
+                onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
               >
                 Précédent
               </button>
-              {[1, 2, 3].map((page) => (
+              {Array.from({ length: totalPages }, (_, index) => index + 1).map((page) => (
                 <button
                   key={page}
                   onClick={() => setCurrentPage(page)}
                   className={`w-8 h-8 text-sm font-medium rounded-lg transition-colors ${
-                    currentPage === page
-                      ? 'bg-purple-600 text-white'
+                    safeCurrentPage === page
+                      ? 'bg-fuchsia-600 text-white'
                       : 'text-gray-700 hover:bg-gray-50'
                   }`}
                 >
                   {page}
                 </button>
               ))}
-              <button className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors">
+              <button
+                className="px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 rounded-lg transition-colors disabled:opacity-50"
+                disabled={safeCurrentPage === totalPages}
+                onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+              >
                 Suivant
               </button>
             </div>
           </div>
         </div>
+
+        {isArchiveOpen && (
+          <div className="mt-6 bg-white rounded-xl shadow-sm border border-fuchsia-100 overflow-hidden">
+            <div className="px-6 py-4 border-b border-fuchsia-100 bg-fuchsia-50/40">
+              <h3 className="text-base font-semibold text-fuchsia-800">Archive des paiements</h3>
+              <p className="text-xs text-fuchsia-700 mt-1">
+                Les paiements de plus de {PAYMENT_DEADLINE_HOURS}h sont conservés ici.
+              </p>
+            </div>
+            <div className="overflow-x-auto max-h-[360px]">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-fuchsia-100">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Membre
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Heure
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Montant
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">
+                      Période
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-fuchsia-100/70">
+                  {archivedPaymentsFiltered.length === 0 && (
+                    <tr>
+                      <td colSpan={5} className="px-6 py-6 text-center text-sm text-gray-500">
+                        Aucun paiement archivé pour le moment.
+                      </td>
+                    </tr>
+                  )}
+                  {archivedPaymentsFiltered.map((payment) => (
+                    <tr key={`archive-${payment.id}`} className="hover:bg-fuchsia-50/40 transition-colors">
+                      <td className="px-6 py-3 text-sm font-medium text-gray-900">
+                        {payment.name} <span className="text-xs text-gray-500">(ID: {payment.memberId})</span>
+                      </td>
+                      <td className="px-6 py-3 text-sm text-gray-700">{payment.date}</td>
+                      <td className="px-6 py-3 text-sm text-gray-700">{payment.time}</td>
+                      <td className="px-6 py-3 text-sm font-semibold text-gray-900">{payment.amount}</td>
+                      <td className="px-6 py-3 text-sm text-gray-700">{payment.period}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </main>
 
       {isAddPaymentOpen && (
@@ -496,7 +937,7 @@ const CotisationsTracker = () => {
                   id="payment-user"
                   value={paymentForm.user_id}
                   onChange={(e) => handlePaymentFieldChange('user_id', e.target.value)}
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                   required
                 >
                   <option value="">Sélectionner une utilisatrice</option>
@@ -522,7 +963,7 @@ const CotisationsTracker = () => {
                   value={paymentForm.montant}
                   onChange={(e) => handlePaymentFieldChange('montant', e.target.value)}
                   placeholder="150.00"
-                  className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                  className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                   required
                 />
               </div>
@@ -542,7 +983,7 @@ const CotisationsTracker = () => {
                 <button
                   type="submit"
                   disabled={isSubmittingPayment}
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-purple-600 text-white font-semibold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-fuchsia-600 text-white font-semibold shadow-lg shadow-fuchsia-500/20 hover:bg-fuchsia-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
                 >
                   {isSubmittingPayment ? 'Enregistrement...' : 'Valider'}
                 </button>

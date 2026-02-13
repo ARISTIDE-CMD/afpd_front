@@ -68,7 +68,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                 className="relative z-10 w-full max-w-2xl bg-white rounded-3xl shadow-2xl shadow-slate-900/20 ring-1 ring-black/10 overflow-hidden"
                 style={{ animation: 'modalIn 0.25s ease-out' }}
             >
-                <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-purple-50 via-white to-indigo-50">
+                <div className="px-6 py-5 border-b border-slate-100 bg-gradient-to-r from-fuchsia-50 via-white to-rose-50">
                     <div className="flex items-start justify-between gap-4">
                         <div>
                             <h3 id="access-modal-title" className="text-lg font-semibold text-slate-900">
@@ -77,11 +77,12 @@ const AccessModal = ({ isOpen, onClose }) => {
                             <p className="text-sm text-slate-500 mt-1">
                                 Décrivez votre besoin, nous vous recontactons rapidement.
                             </p>
+                        
                         </div>
                         <button
                             type="button"
                             onClick={onClose}
-                            className="h-10 w-10 inline-flex items-center justify-center rounded-full text-slate-500 hover:text-slate-700 hover:bg-red-100 transition focus:outline-none focus:ring-2 focus:ring-purple-500/40 color-slate-500"
+                            className="h-10 w-10 inline-flex items-center justify-center rounded-full text-slate-500 hover:text-slate-700 hover:bg-red-100 transition focus:outline-none focus:ring-2 focus:ring-fuchsia-500/40 color-slate-500"
                         >
                             <span className="sr-only">Fermer</span>
                             <svg viewBox="0 0 24 24" className="h-5 w-5" fill="currentColor">
@@ -102,7 +103,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 type="text"
                                 value={accessForm.nom}
                                 onChange={(e) => updateAccessField('nom', e.target.value)}
-                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                                 placeholder="nom"
                                 required
                             />
@@ -116,7 +117,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 type="text"
                                 value={accessForm.prenom}
                                 onChange={(e) => updateAccessField('prenom', e.target.value)}
-                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                                 placeholder="prénom"
                                 required
                             />
@@ -130,7 +131,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 type="text"
                                 value={accessForm.password}
                                 onChange={(e) => updateAccessField('password', e.target.value)}
-                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                                 placeholder="Ex: password"
                             />
                         </div>
@@ -143,7 +144,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 type="tel"
                                 value={accessForm.telephone}
                                 onChange={(e) => updateAccessField('telephone', e.target.value)}
-                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                                 placeholder="+237 6 78 34 56 78"
                             />
                         </div>
@@ -156,7 +157,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 type="email"
                                 value={accessForm.email}
                                 onChange={(e) => updateAccessField('email', e.target.value)}
-                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900"
                                 placeholder="nom@example.com"
                                 required
                             />
@@ -169,7 +170,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                                 id="access-message"
                                 value={accessForm.message}
                                 onChange={(e) => updateAccessField('message', e.target.value)}
-                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-slate-900 min-h-[120px] resize-none"
+                                className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50/60 focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-slate-900 min-h-[120px] resize-none"
                                 placeholder="Dites-nous en quelques lignes ce que vous souhaitez faire."
                             />
                         </div> */}
@@ -197,7 +198,7 @@ const AccessModal = ({ isOpen, onClose }) => {
                         <button
                             type="submit"
                             disabled={isSubmittingAccess}
-                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-purple-600 text-white font-semibold shadow-lg shadow-purple-500/20 hover:bg-purple-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
+                            className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-fuchsia-600 text-white font-semibold shadow-lg shadow-fuchsia-500/20 hover:bg-fuchsia-700 transition-all duration-200 hover:-translate-y-0.5 disabled:opacity-60 disabled:cursor-not-allowed text-base"
                         >
                             {isSubmittingAccess ? 'Envoi en cours...' : "Envoyer la demande"}
                         </button>

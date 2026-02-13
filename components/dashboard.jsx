@@ -1,297 +1,1039 @@
-import React from 'react';
-import { Calendar, TrendingUp, TrendingDown, AlertTriangle, Users, Euro, CalendarDays } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+    AlertTriangle,
+    CheckCircle2,
+    Clock3,
+    CalendarDays,
+    Euro,
+    Filter,
+    Search,
+    TrendingUp,
+    Users,
+    XCircle,
+} from 'lucide-react';
+import { apiGet } from '../src/api';
 
 const AdminDashboard = () => {
-    // Données pour le graphique d'évolution des revenus
-    const revenueData = [
-        { month: 'JAN', value: 35 },
-        { month: 'FÉV', value: 45 },
-        { month: 'MAR', value: 42 },
-        { month: 'AVR', value: 62 },
-        { month: 'MAI', value: 58 },
-        { month: 'JUIN', value: 75 }
-    ];
+    const [payments, setPayments] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [pendingUsers, setPendingUsers] = useState([]);
+    const [events, setEvents] = useState([]);
+    const [pendingEvents, setPendingEvents] = useState([]);
+    const [isLoadingStats, setIsLoadingStats] = useState(true);
+    const [statsError, setStatsError] = useState('');
+    const [curveRangeMonths, setCurveRangeMonths] = useState('6');
+    const [curveMetric, setCurveMetric] = useState('amount');
+    const [eventCurveMetric, setEventCurveMetric] = useState('created');
+    const [rankingMode, setRankingMode] = useState('highest_amount');
+    const [rankingSearch, setRankingSearch] = useState('');
 
-    const maxValue = Math.max(...revenueData.map(d => d.value));
+    const normalizeStatus = (value) => {
+        if (!value) return '';
+        return value
+            .toString()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .toLowerCase();
+    };
+
+    const mapStatus = (value) => {
+        const normalized = normalizeStatus(value);
+        if (!normalized) return '';
+        if (['paye', 'payee', 'paid', 'valide', 'validee'].includes(normalized)) return 'paid';
+        if (['retard', 'late'].includes(normalized)) return 'late';
+        if (['attente', 'pending', 'en_attente'].includes(normalized)) return 'pending';
+        return '';
+    };
+
+    const formatAmount = (value) => {
+        if (value === null || value === undefined || value === '') return '-';
+        const numberValue = Number(value);
+        if (Number.isNaN(numberValue)) return `${value}`;
+        return `${numberValue.toFixed(2)} F CFA`;
+    };
+
+    const formatCompactAmount = (value) => {
+        const numberValue = Number(value);
+        if (Number.isNaN(numberValue)) return '-';
+        const compact = new Intl.NumberFormat('fr-FR', {
+            notation: 'compact',
+            maximumFractionDigits: 1,
+        }).format(numberValue);
+        return `${compact} F`;
+    };
+
+    const formatDateTime = (ms) => {
+        if (!ms) return '-';
+        const parsed = new Date(ms);
+        if (Number.isNaN(parsed.getTime())) return '-';
+        return parsed.toLocaleDateString('fr-FR', {
+            day: '2-digit',
+            month: 'short',
+            year: 'numeric',
+        });
+    };
+
+    const getPaymentAmount = (payment) => {
+        const raw = payment?.montant ?? payment?.amount;
+        const numberValue = Number(raw);
+        return Number.isNaN(numberValue) ? null : numberValue;
+    };
+
+    const getPaymentStatus = (payment) => {
+        const amount = getPaymentAmount(payment);
+        if (amount !== null && amount <= 0) return 'pending';
+        if (amount !== null && amount > 0) {
+            return mapStatus(payment?.statut ?? payment?.status) || 'paid';
+        }
+        return mapStatus(payment?.statut ?? payment?.status);
+    };
+
+    const getPaymentDateMs = (payment) => {
+        const value =
+            payment?.date ??
+            payment?.created_at ??
+            payment?.createdAt ??
+            payment?.paid_at ??
+            payment?.timestamp;
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+    };
+
+    const getPaymentUserId = (payment) => {
+        const value =
+            payment?.user_id ??
+            payment?.membre_id ??
+            payment?.member_id ??
+            payment?.adherente_id ??
+            payment?.user?.id ??
+            payment?.member?.id ??
+            payment?.membre?.id ??
+            payment?.adherente?.id;
+        if (value === null || value === undefined || value === '') return null;
+        return `${value}`;
+    };
+
+    const getEventParticipantsCount = (event) => {
+        const directCount = Number(
+            event?.participants_count ??
+            event?.inscriptions_count ??
+            event?.participantsCount ??
+            event?.inscrits_count
+        );
+        if (!Number.isNaN(directCount) && directCount >= 0) return directCount;
+        const participants =
+            (Array.isArray(event?.participants) && event.participants) ||
+            (Array.isArray(event?.inscriptions) && event.inscriptions) ||
+            (Array.isArray(event?.adherentes) && event.adherentes) ||
+            [];
+        return participants.length;
+    };
+
+    const getEventStatusToken = (event) => normalizeStatus(
+        event?.statut ??
+        event?.status ??
+        event?.etat ??
+        event?.state ??
+        event?.validation_status ??
+        event?.moderation_status
+    );
+
+    const toBoolFlag = (value) => {
+        if (typeof value === 'boolean') return value;
+        if (typeof value === 'number') return value === 1;
+        if (typeof value === 'string') {
+            const token = normalizeStatus(value);
+            if (['1', 'true', 'yes', 'oui'].includes(token)) return true;
+            if (['0', 'false', 'no', 'non'].includes(token)) return false;
+        }
+        return null;
+    };
+
+    const isEventRejected = (event) => {
+        const rejectedFlag = toBoolFlag(event?.is_rejected ?? event?.rejected ?? event?.is_refused ?? event?.refused);
+        if (rejectedFlag === true) return true;
+        const statusToken = getEventStatusToken(event);
+        return ['rejete', 'rejected', 'refuse', 'declined', 'annule', 'cancelled'].some((label) =>
+            statusToken.includes(label)
+        );
+    };
+
+    const isEventValidated = (event) => {
+        const validatedFlag = toBoolFlag(event?.is_validated ?? event?.validated ?? event?.valide ?? event?.is_approved ?? event?.approved);
+        if (validatedFlag === true) return true;
+        const statusToken = getEventStatusToken(event);
+        return ['valide', 'validated', 'approve', 'approuve', 'publie', 'published', 'actif', 'active', 'live', 'termine', 'ended'].some((label) =>
+            statusToken.includes(label)
+        );
+    };
+
+    const isEventPending = (event, pendingEventIds) => {
+        if (event?.id !== undefined && event?.id !== null && pendingEventIds.has(`${event.id}`)) return true;
+        const pendingFlag = toBoolFlag(event?.is_pending ?? event?.pending ?? event?.en_attente ?? event?.submitted_for_validation);
+        if (pendingFlag === true) return true;
+        if (isEventRejected(event) || isEventValidated(event)) return false;
+        const statusToken = getEventStatusToken(event);
+        return ['pending', 'attente', 'review', 'moderation', 'draft', 'propose', 'submitted'].some((label) =>
+            statusToken.includes(label)
+        );
+    };
+
+    const getEventCreatedDateMs = (event) => {
+        const value =
+            event?.created_at ??
+            event?.createdAt ??
+            event?.date_creation ??
+            event?.date_debut ??
+            event?.start_date;
+        if (!value) return null;
+        const parsed = new Date(value);
+        return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+    };
+
+    useEffect(() => {
+        const fetchStats = async () => {
+            setIsLoadingStats(true);
+            setStatsError('');
+            try {
+                const [paymentsData, usersData, eventsData] = await Promise.all([
+                    apiGet('/api/cotisations'),
+                    apiGet('/api/users'),
+                    apiGet('/api/evenements'),
+                ]);
+                const paymentsList = Array.isArray(paymentsData) ? paymentsData : paymentsData?.data ?? [];
+                const usersList = Array.isArray(usersData) ? usersData : usersData?.data ?? [];
+                const eventsList = Array.isArray(eventsData) ? eventsData : eventsData?.data ?? [];
+                setPayments(Array.isArray(paymentsList) ? paymentsList : []);
+                setUsers(Array.isArray(usersList) ? usersList : []);
+                setEvents(Array.isArray(eventsList) ? eventsList : []);
+            } catch (error) {
+                setStatsError("Impossible de charger les statistiques.");
+            }
+
+            try {
+                const [pendingData, pendingEventsData] = await Promise.all([
+                    apiGet('/api/admin/pending-users'),
+                    apiGet('/api/admin/pending-events'),
+                ]);
+                const pendingList = Array.isArray(pendingData) ? pendingData : pendingData?.data ?? [];
+                const pendingEventsList = Array.isArray(pendingEventsData) ? pendingEventsData : pendingEventsData?.data ?? [];
+                setPendingUsers(Array.isArray(pendingList) ? pendingList : []);
+                setPendingEvents(Array.isArray(pendingEventsList) ? pendingEventsList : []);
+            } catch (error) {
+                setPendingUsers([]);
+                setPendingEvents([]);
+            } finally {
+                setIsLoadingStats(false);
+            }
+        };
+
+        fetchStats();
+    }, []);
+
+    const usersById = useMemo(() => {
+        const map = new Map();
+        users.forEach((user) => {
+            if (user?.id !== null && user?.id !== undefined) {
+                map.set(`${user.id}`, user);
+            }
+        });
+        return map;
+    }, [users]);
+
+    const paidPayments = useMemo(() => {
+        return payments
+            .map((payment) => {
+                const amount = getPaymentAmount(payment);
+                const status = getPaymentStatus(payment);
+                const dateMs = getPaymentDateMs(payment);
+                const userId = getPaymentUserId(payment);
+                const linkedUser = userId ? usersById.get(userId) : null;
+                const name = `${payment?.nom ?? linkedUser?.nom ?? ''} ${payment?.prenom ?? linkedUser?.prenom ?? ''}`.trim();
+                return {
+                    payment,
+                    amount,
+                    status,
+                    dateMs,
+                    userId,
+                    name: name || '-',
+                };
+            })
+            .filter((item) => item.status === 'paid' && item.amount !== null && item.amount > 0);
+    }, [payments, usersById]);
+
+    const allTrackedUsers = useMemo(() => {
+        return users
+            .filter((user) => normalizeStatus(user?.statut) !== 'pending')
+            .map((user) => {
+                const key = user?.id !== null && user?.id !== undefined
+                    ? `${user.id}`
+                    : `${user?.nom ?? ''}-${user?.prenom ?? ''}-${user?.email ?? ''}`;
+                const name = `${user?.nom ?? ''} ${user?.prenom ?? ''}`.trim() || user?.email || '-';
+                return { key, userId: user?.id !== null && user?.id !== undefined ? `${user.id}` : null, name };
+            });
+    }, [users]);
+
+    const stats = useMemo(() => {
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        let totalCollected = 0;
+        let unpaidCount = 0;
+
+        payments.forEach((payment) => {
+            const status = getPaymentStatus(payment);
+            const amount = getPaymentAmount(payment);
+            const dateMs = getPaymentDateMs(payment);
+            if (status === 'paid' && amount !== null) {
+                const yearMatch = dateMs ? new Date(dateMs).getFullYear() === currentYear : true;
+                if (yearMatch) {
+                    totalCollected += amount;
+                }
+            }
+            if (status === 'late' || status === 'pending') {
+                unpaidCount += 1;
+            }
+        });
+
+        const activeMembersCount = users.filter((user) => (user?.statut ?? '').toLowerCase() === 'actif').length;
+
+        return [
+            {
+                title: 'Adhérentes Actives',
+                value: `${activeMembersCount}`,
+                icon: Users,
+                iconBg: 'bg-fuchsia-100',
+                iconColor: 'text-fuchsia-600',
+            },
+            {
+                title: 'Cotisations Total (Annuel)',
+                value: formatAmount(totalCollected),
+                icon: Euro,
+                iconBg: 'bg-fuchsia-100',
+                iconColor: 'text-fuchsia-600',
+            },
+            {
+                title: 'Cotisations en attente',
+                value: `${unpaidCount}`,
+                icon: AlertTriangle,
+                iconBg: 'bg-red-100',
+                iconColor: 'text-red-600',
+            },
+            {
+                title: 'Demandes en attente',
+                value: `${pendingUsers.length}`,
+                icon: CalendarDays,
+                iconBg: 'bg-fuchsia-100',
+                iconColor: 'text-fuchsia-600',
+            },
+        ];
+    }, [payments, users, pendingUsers]);
+
+    const eventInsights = useMemo(() => {
+        const pendingEventIds = new Set(
+            pendingEvents
+                .filter((event) => event?.id !== null && event?.id !== undefined)
+                .map((event) => `${event.id}`)
+        );
+
+        let totalRegistrations = 0;
+        let validatedCount = 0;
+        let rejectedCount = 0;
+        let pendingCount = 0;
+
+        events.forEach((event) => {
+            totalRegistrations += getEventParticipantsCount(event);
+
+            if (isEventRejected(event)) {
+                rejectedCount += 1;
+                return;
+            }
+            if (isEventPending(event, pendingEventIds)) {
+                pendingCount += 1;
+                return;
+            }
+            if (isEventValidated(event) || pendingEventIds.size > 0) {
+                validatedCount += 1;
+                return;
+            }
+            pendingCount += 1;
+        });
+
+        const totalEvents = events.length;
+        const effectivePendingCount = pendingEventIds.size > 0
+            ? Math.max(pendingCount, pendingEventIds.size)
+            : pendingCount;
+        const moderationBase = validatedCount + rejectedCount;
+        const approvalRate = moderationBase > 0 ? Math.round((validatedCount / moderationBase) * 100) : 0;
+
+        return {
+            totalEvents,
+            totalRegistrations,
+            validatedCount,
+            rejectedCount,
+            pendingCount: effectivePendingCount,
+            approvalRate,
+        };
+    }, [events, pendingEvents]);
+
+    const eventStats = useMemo(() => ([
+        {
+            title: 'Événements créés',
+            value: `${eventInsights.totalEvents}`,
+            icon: CalendarDays,
+            iconBg: 'bg-fuchsia-100',
+            iconColor: 'text-fuchsia-600',
+        },
+        {
+            title: 'Inscriptions événements',
+            value: `${eventInsights.totalRegistrations}`,
+            icon: Users,
+            iconBg: 'bg-indigo-100',
+            iconColor: 'text-indigo-600',
+        },
+        {
+            title: 'Événements validés',
+            value: `${eventInsights.validatedCount}`,
+            icon: CheckCircle2,
+            iconBg: 'bg-emerald-100',
+            iconColor: 'text-emerald-600',
+        },
+        {
+            title: 'Événements rejetés',
+            value: `${eventInsights.rejectedCount}`,
+            icon: XCircle,
+            iconBg: 'bg-rose-100',
+            iconColor: 'text-rose-600',
+        },
+        {
+            title: 'Événements en attente',
+            value: `${eventInsights.pendingCount}`,
+            icon: Clock3,
+            iconBg: 'bg-amber-100',
+            iconColor: 'text-amber-600',
+        },
+    ]), [eventInsights]);
+
+    const monthlyCurveData = useMemo(() => {
+        const range = Number(curveRangeMonths) || 6;
+        const now = new Date();
+        const monthLabels = ['JAN', 'FÉV', 'MAR', 'AVR', 'MAI', 'JUIN', 'JUIL', 'AOÛ', 'SEPT', 'OCT', 'NOV', 'DÉC'];
+
+        const months = Array.from({ length: range }, (_, index) => {
+            const date = new Date(now.getFullYear(), now.getMonth() - (range - 1 - index), 1);
+            return {
+                key: `${date.getFullYear()}-${date.getMonth()}`,
+                label: monthLabels[date.getMonth()],
+                month: date.getMonth(),
+                year: date.getFullYear(),
+                totalAmount: 0,
+                paymentCount: 0,
+            };
+        });
+
+        paidPayments.forEach((entry) => {
+            if (!entry.dateMs) return;
+            const paymentDate = new Date(entry.dateMs);
+            const target = months.find(
+                (month) => month.month === paymentDate.getMonth() && month.year === paymentDate.getFullYear(),
+            );
+            if (!target) return;
+            target.totalAmount += Number(entry.amount ?? 0);
+            target.paymentCount += 1;
+        });
+
+        return months;
+    }, [paidPayments, curveRangeMonths]);
+
+    const chartModel = useMemo(() => {
+        const values = monthlyCurveData.map((month) => (
+            curveMetric === 'count' ? month.paymentCount : month.totalAmount
+        ));
+        const maxValue = Math.max(1, ...values);
+        const width = 760;
+        const height = 280;
+        const left = 20;
+        const right = 20;
+        const top = 20;
+        const bottom = 34;
+        const innerWidth = width - left - right;
+        const innerHeight = height - top - bottom;
+        const baseY = height - bottom;
+        const stepX = values.length > 1 ? innerWidth / (values.length - 1) : 0;
+
+        const points = values.map((value, index) => {
+            const x = left + (index * stepX);
+            const y = baseY - ((value / maxValue) * innerHeight);
+            return { x, y, value };
+        });
+
+        const polylinePoints = points.map((point) => `${point.x},${point.y}`).join(' ');
+        const areaPath = points.length
+            ? `M ${left} ${baseY} L ${polylinePoints} L ${left + innerWidth} ${baseY} Z`
+            : '';
+
+        return {
+            width,
+            height,
+            left,
+            innerWidth,
+            innerHeight,
+            baseY,
+            maxValue,
+            points,
+            polylinePoints,
+            areaPath,
+        };
+    }, [monthlyCurveData, curveMetric]);
+
+    const eventMonthlyData = useMemo(() => {
+        const range = Number(curveRangeMonths) || 6;
+        const now = new Date();
+        const monthLabels = ['JAN', 'FÉV', 'MAR', 'AVR', 'MAI', 'JUIN', 'JUIL', 'AOÛ', 'SEPT', 'OCT', 'NOV', 'DÉC'];
+        const pendingEventIds = new Set(
+            pendingEvents
+                .filter((event) => event?.id !== null && event?.id !== undefined)
+                .map((event) => `${event.id}`)
+        );
+
+        const months = Array.from({ length: range }, (_, index) => {
+            const date = new Date(now.getFullYear(), now.getMonth() - (range - 1 - index), 1);
+            return {
+                key: `${date.getFullYear()}-${date.getMonth()}`,
+                label: monthLabels[date.getMonth()],
+                month: date.getMonth(),
+                year: date.getFullYear(),
+                createdCount: 0,
+                registrationsCount: 0,
+                validatedCount: 0,
+                rejectedCount: 0,
+            };
+        });
+
+        events.forEach((event) => {
+            const eventMs = getEventCreatedDateMs(event);
+            if (!eventMs) return;
+            const eventDate = new Date(eventMs);
+            const target = months.find(
+                (month) => month.month === eventDate.getMonth() && month.year === eventDate.getFullYear(),
+            );
+            if (!target) return;
+
+            target.createdCount += 1;
+            target.registrationsCount += getEventParticipantsCount(event);
+            if (isEventRejected(event)) {
+                target.rejectedCount += 1;
+                return;
+            }
+            if (!isEventPending(event, pendingEventIds)) {
+                target.validatedCount += 1;
+            }
+        });
+
+        return months;
+    }, [events, pendingEvents, curveRangeMonths]);
+
+    const eventChartModel = useMemo(() => {
+        const values = eventMonthlyData.map((month) => {
+            if (eventCurveMetric === 'created') return month.createdCount;
+            if (eventCurveMetric === 'registrations') return month.registrationsCount;
+            if (eventCurveMetric === 'validated') return month.validatedCount;
+            if (eventCurveMetric === 'rejected') return month.rejectedCount;
+            return month.createdCount;
+        });
+
+        const maxValue = Math.max(1, ...values);
+        const width = 760;
+        const height = 260;
+        const left = 18;
+        const right = 18;
+        const top = 16;
+        const bottom = 34;
+        const innerWidth = width - left - right;
+        const innerHeight = height - top - bottom;
+        const barWidth = values.length > 0 ? Math.max(18, (innerWidth / values.length) * 0.55) : 24;
+
+        const bars = values.map((value, index) => {
+            const stepX = innerWidth / Math.max(values.length, 1);
+            const x = left + (index * stepX) + ((stepX - barWidth) / 2);
+            const barHeight = (value / maxValue) * innerHeight;
+            const y = top + (innerHeight - barHeight);
+            return { x, y, barHeight, value };
+        });
+
+        return {
+            width,
+            height,
+            left,
+            innerWidth,
+            innerHeight,
+            baseY: top + innerHeight,
+            maxValue,
+            bars,
+        };
+    }, [eventMonthlyData, eventCurveMetric]);
+
+    const topEventsByParticipants = useMemo(() => {
+        return [...events]
+            .map((event) => ({
+                id: event?.id ?? `${event?.titre ?? event?.title ?? 'event'}`,
+                title: event?.titre ?? event?.title ?? 'Sans titre',
+                participants: getEventParticipantsCount(event),
+                dateMs: getEventCreatedDateMs(event),
+            }))
+            .sort((a, b) => {
+                if (b.participants !== a.participants) return b.participants - a.participants;
+                if (!a.dateMs && !b.dateMs) return 0;
+                if (!a.dateMs) return 1;
+                if (!b.dateMs) return -1;
+                return b.dateMs - a.dateMs;
+            });
+    }, [events]);
+
+    const memberProfiles = useMemo(() => {
+        const profileMap = new Map();
+
+        allTrackedUsers.forEach((user) => {
+            profileMap.set(user.key, {
+                key: user.key,
+                userId: user.userId,
+                name: user.name,
+                totalAmount: 0,
+                paymentCount: 0,
+                firstPaymentMs: null,
+                lastPaymentMs: null,
+            });
+        });
+
+        paidPayments.forEach((entry) => {
+            const key = entry.userId || entry.name;
+            const existing = profileMap.get(key) || {
+                key,
+                userId: entry.userId,
+                name: entry.name,
+                totalAmount: 0,
+                paymentCount: 0,
+                firstPaymentMs: null,
+                lastPaymentMs: null,
+            };
+
+            existing.totalAmount += Number(entry.amount ?? 0);
+            existing.paymentCount += 1;
+            if (entry.dateMs) {
+                existing.firstPaymentMs =
+                    existing.firstPaymentMs === null ? entry.dateMs : Math.min(existing.firstPaymentMs, entry.dateMs);
+                existing.lastPaymentMs =
+                    existing.lastPaymentMs === null ? entry.dateMs : Math.max(existing.lastPaymentMs, entry.dateMs);
+            }
+            profileMap.set(key, existing);
+        });
+
+        return Array.from(profileMap.values());
+    }, [allTrackedUsers, paidPayments]);
+
+    const rankedProfiles = useMemo(() => {
+        const query = rankingSearch.trim().toLowerCase();
+        const filtered = memberProfiles.filter((profile) => {
+            if (!query) return true;
+            return profile.name.toLowerCase().includes(query);
+        });
+
+        const list = [...filtered];
+        if (rankingMode === 'highest_amount') {
+            list.sort((a, b) => b.totalAmount - a.totalAmount);
+        }
+        if (rankingMode === 'highest_frequency') {
+            list.sort((a, b) => {
+                if (b.paymentCount !== a.paymentCount) return b.paymentCount - a.paymentCount;
+                return b.totalAmount - a.totalAmount;
+            });
+        }
+        if (rankingMode === 'earliest_payment') {
+            list.sort((a, b) => {
+                if (a.firstPaymentMs === null && b.firstPaymentMs === null) return 0;
+                if (a.firstPaymentMs === null) return 1;
+                if (b.firstPaymentMs === null) return -1;
+                return a.firstPaymentMs - b.firstPaymentMs;
+            });
+        }
+        if (rankingMode === 'latest_payment') {
+            list.sort((a, b) => {
+                if (a.lastPaymentMs === null && b.lastPaymentMs === null) return 0;
+                if (a.lastPaymentMs === null) return 1;
+                if (b.lastPaymentMs === null) return -1;
+                return b.lastPaymentMs - a.lastPaymentMs;
+            });
+        }
+
+        return list;
+    }, [memberProfiles, rankingMode, rankingSearch]);
+
+    const rankingLabel = useMemo(() => {
+        if (rankingMode === 'highest_amount') return 'Plus gros montant';
+        if (rankingMode === 'highest_frequency') return 'Fréquence de paiement';
+        if (rankingMode === 'earliest_payment') return 'Paiement le plus tôt';
+        if (rankingMode === 'latest_payment') return 'Paiement le plus récent';
+        return '';
+    }, [rankingMode]);
+
+    const rankingValue = (profile) => {
+        if (rankingMode === 'highest_amount') return formatAmount(profile.totalAmount);
+        if (rankingMode === 'highest_frequency') return `${profile.paymentCount} paiement(s)`;
+        if (rankingMode === 'earliest_payment') return formatDateTime(profile.firstPaymentMs);
+        if (rankingMode === 'latest_payment') return formatDateTime(profile.lastPaymentMs);
+        return '-';
+    };
 
     return (
-        <div className="flex-1 bg-gray-50 p-8">
-            {/* Header */}
-            {/* <div className="flex justify-between items-center mb-8">
-                <h1 className="text-2xl font-bold text-gray-800">Tableau de Bord Administratif</h1>
-                <div className="flex items-center gap-4">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Rechercher une adhérente, une facture..."
-                            className="w-80 px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                        />
-                    </div>
-                    <button className="bg-purple-600 text-white px-6 py-2 rounded-lg font-medium hover:bg-purple-700 transition-colors flex items-center gap-2">
-                        + Nouvelle Adhérente
-                    </button>
+        <div className="flex-1 bg-[#FDF5FA] p-8">
+            {statsError && (
+                <div className="mb-6 rounded-xl bg-red-50 text-red-700 px-4 py-3 text-sm font-medium border border-red-200">
+                    {statsError}
                 </div>
-            </div> */}
+            )}
 
-            {/* Cards statistiques */}
             <div className="grid grid-cols-4 gap-6 mb-8">
-                {/* Adhérentes Actives */}
-                <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="bg-purple-100 p-3 rounded-lg">
-                            <Users className="w-6 h-6 text-purple-600" />
+                {stats.map((stat) => {
+                    const Icon = stat.icon;
+                    return (
+                        <div key={stat.title} className="bg-white rounded-xl p-6 shadow-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className={`${stat.iconBg} p-3 rounded-lg`}>
+                                    <Icon className={`w-6 h-6 ${stat.iconColor}`} />
+                                </div>
+                            </div>
+                            <p className="text-gray-600 text-sm mb-1">{stat.title}</p>
+                            <p className="text-3xl font-bold text-gray-800">
+                                {isLoadingStats ? '-' : stat.value}
+                            </p>
                         </div>
-                        <span className="text-green-500 text-sm font-medium flex items-center gap-1">
-                            <TrendingUp className="w-4 h-4" />
-                            +12%
-                        </span>
-                    </div>
-                    <p className="text-gray-600 text-sm mb-1">Adhérentes Actives</p>
-                    <p className="text-3xl font-bold text-gray-800">1,240</p>
-                </div>
-
-                {/* Cotisations Total */}
-                <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="bg-purple-100 p-3 rounded-lg">
-                            <Euro className="w-6 h-6 text-purple-600" />
-                        </div>
-                        <span className="text-green-500 text-sm font-medium flex items-center gap-1">
-                            <TrendingUp className="w-4 h-4" />
-                            +5.2%
-                        </span>
-                    </div>
-                    <p className="text-gray-600 text-sm mb-1">Cotisations Total</p>
-                    <p className="text-3xl font-bold text-gray-800">45,600 €</p>
-                </div>
-
-                {/* Cotisations Impayées */}
-                <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="bg-red-100 p-3 rounded-lg">
-                            <AlertTriangle className="w-6 h-6 text-red-600" />
-                        </div>
-                        <span className="text-red-500 text-sm font-medium flex items-center gap-1">
-                            <TrendingDown className="w-4 h-4" />
-                            -2%
-                        </span>
-                    </div>
-                    <p className="text-gray-600 text-sm mb-1">Cotisations Impayées</p>
-                    <p className="text-3xl font-bold text-gray-800">120 €</p>
-                </div>
-
-                {/* Événements (Mois) */}
-                <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <div className="flex items-center justify-between mb-4">
-                        <div className="bg-purple-100 p-3 rounded-lg">
-                            <CalendarDays className="w-6 h-6 text-purple-600" />
-                        </div>
-                        <span className="text-gray-400 text-sm font-medium">Stagnant</span>
-                    </div>
-                    <p className="text-gray-600 text-sm mb-1">Événements (Mois)</p>
-                    <p className="text-3xl font-bold text-gray-800">8</p>
-                </div>
+                    );
+                })}
             </div>
 
-            {/* Section graphiques */}
-            <div className="grid grid-cols-3 gap-6 mb-8">
-                {/* Évolution des Revenus */}
-                <div className="col-span-2 bg-white rounded-xl p-6 shadow-sm">
-                    <div className="flex justify-between items-center mb-6">
-                        <div>
-                            <h2 className="text-lg font-bold text-gray-800">Évolution des Revenus</h2>
-                            <p className="text-sm text-gray-500">Total cumulé Janv - Juin 2024</p>
+            <div className="grid grid-cols-5 gap-6 mb-8">
+                {eventStats.map((stat) => {
+                    const Icon = stat.icon;
+                    return (
+                        <div key={stat.title} className="bg-white rounded-xl p-6 shadow-sm">
+                            <div className="flex items-center justify-between mb-4">
+                                <div className={`${stat.iconBg} p-3 rounded-lg`}>
+                                    <Icon className={`w-6 h-6 ${stat.iconColor}`} />
+                                </div>
+                            </div>
+                            <p className="text-gray-600 text-sm mb-1">{stat.title}</p>
+                            <p className="text-3xl font-bold text-gray-800">
+                                {isLoadingStats ? '-' : stat.value}
+                            </p>
                         </div>
-                        <select className="px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500">
-                            <option>Derniers 6 mois</option>
-                        </select>
+                    );
+                })}
+            </div>
+
+            <div className="grid grid-cols-3 gap-6 mb-8">
+                <div className="col-span-2 bg-white rounded-xl p-6 shadow-sm">
+                    <div className="flex items-start justify-between gap-4 mb-6">
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <TrendingUp className="w-5 h-5 text-fuchsia-700" />
+                                Courbe des cotisations
+                            </h2>
+                            <p className="text-sm text-gray-500">
+                                Analyse dynamique des montants et des volumes de paiements.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={curveMetric}
+                                onChange={(e) => setCurveMetric(e.target.value)}
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                            >
+                                <option value="amount">Montant total</option>
+                                <option value="count">Nombre de paiements</option>
+                            </select>
+                            <select
+                                value={curveRangeMonths}
+                                onChange={(e) => setCurveRangeMonths(e.target.value)}
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                            >
+                                <option value="3">3 mois</option>
+                                <option value="6">6 mois</option>
+                                <option value="12">12 mois</option>
+                            </select>
+                        </div>
                     </div>
 
-                    {/* Graphique en barres */}
-                    <div className="flex items-end justify-between h-64 gap-4">
-                        {revenueData.map((data, index) => (
-                            <div key={index} className="flex-1 flex flex-col items-center gap-2">
-                                <div className="w-full flex items-end justify-center" style={{ height: '200px' }}>
-                                    <div
-                                        className="w-full rounded-t-lg transition-all duration-300 hover:opacity-80"
-                                        style={{
-                                            height: `${(data.value / maxValue) * 100}%`,
-                                            background: `linear-gradient(to top, rgb(147, 51, 234), rgb(192, 132, 252))`
-                                        }}
+                    <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/30 p-4">
+                        <svg viewBox={`0 0 ${chartModel.width} ${chartModel.height}`} className="w-full h-64">
+                            {[0.25, 0.5, 0.75, 1].map((ratio) => {
+                                const y = chartModel.baseY - (ratio * chartModel.innerHeight);
+                                return (
+                                    <line
+                                        key={ratio}
+                                        x1={chartModel.left}
+                                        x2={chartModel.left + chartModel.innerWidth}
+                                        y1={y}
+                                        y2={y}
+                                        stroke="#f2d7e9"
+                                        strokeWidth="1"
                                     />
+                                );
+                            })}
+                            {chartModel.areaPath && (
+                                <path d={chartModel.areaPath} fill="rgba(217, 79, 175, 0.15)" />
+                            )}
+                            {chartModel.polylinePoints && (
+                                <polyline
+                                    points={chartModel.polylinePoints}
+                                    fill="none"
+                                    stroke="#9D216E"
+                                    strokeWidth="3"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                />
+                            )}
+                            {chartModel.points.map((point, index) => (
+                                <circle
+                                    key={`${index}-${point.x}`}
+                                    cx={point.x}
+                                    cy={point.y}
+                                    r="4.5"
+                                    fill="#D94FAF"
+                                    stroke="#fff"
+                                    strokeWidth="2"
+                                />
+                            ))}
+                        </svg>
+                        <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                            {monthlyCurveData.map((month) => (
+                                <span key={month.key}>{month.label}</span>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mt-4 flex items-center justify-between rounded-lg bg-fuchsia-50 px-4 py-3">
+                        <p className="text-sm text-fuchsia-800">
+                            Pic observé:{' '}
+                            <span className="font-semibold">
+                                {curveMetric === 'amount'
+                                    ? formatCompactAmount(chartModel.maxValue)
+                                    : `${Math.round(chartModel.maxValue)} paiement(s)`}
+                            </span>
+                        </p>
+                        <p className="text-xs text-fuchsia-700">
+                            Données basées sur les paiements validés
+                        </p>
+                    </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-gray-800">Classement payeuses</h2>
+                        <Filter className="w-4 h-4 text-fuchsia-600" />
+                    </div>
+                    <div className="space-y-3 mb-4">
+                        <select
+                            value={rankingMode}
+                            onChange={(e) => setRankingMode(e.target.value)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                        >
+                            <option value="highest_amount">Plus gros montant</option>
+                            <option value="earliest_payment">Paiement le plus tôt</option>
+                            <option value="latest_payment">Paiement le plus récent</option>
+                            <option value="highest_frequency">Fréquence de paiement</option>
+                        </select>
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                            <input
+                                type="text"
+                                value={rankingSearch}
+                                onChange={(e) => setRankingSearch(e.target.value)}
+                                placeholder="Rechercher une adhérente..."
+                                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                            />
+                        </div>
+                    </div>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                        {rankedProfiles.slice(0, 8).map((profile, index) => (
+                            <div
+                                key={profile.key}
+                                className="flex items-center justify-between rounded-lg border border-fuchsia-100 px-3 py-2"
+                            >
+                                <div>
+                                    <p className="text-sm font-semibold text-gray-800">
+                                        {index + 1}. {profile.name}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                        {profile.paymentCount} paiement(s)
+                                    </p>
                                 </div>
-                                <span className="text-xs text-gray-500 font-medium">{data.month}</span>
+                                <span className="text-xs font-semibold text-fuchsia-700">
+                                    {rankingValue(profile)}
+                                </span>
                             </div>
                         ))}
-                    </div>
-                </div>
-
-                {/* Taux de Participation */}
-                <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <h2 className="text-lg font-bold text-gray-800 mb-2">Taux de Participation</h2>
-                    <p className="text-sm text-gray-500 mb-8">Efficacité des événements</p>
-
-                    {/* Graphique circulaire */}
-                    <div className="flex justify-center mb-8">
-                        <div className="relative w-48 h-48">
-                            <svg className="w-full h-full transform -rotate-90">
-                                <circle
-                                    cx="96"
-                                    cy="96"
-                                    r="80"
-                                    fill="none"
-                                    stroke="#f3f4f6"
-                                    strokeWidth="16"
-                                />
-                                <circle
-                                    cx="96"
-                                    cy="96"
-                                    r="80"
-                                    fill="none"
-                                    stroke="url(#gradient)"
-                                    strokeWidth="16"
-                                    strokeDasharray={`${2 * Math.PI * 80 * 0.85} ${2 * Math.PI * 80}`}
-                                    strokeLinecap="round"
-                                />
-                                <defs>
-                                    <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                                        <stop offset="0%" stopColor="#a855f7" />
-                                        <stop offset="100%" stopColor="#7c3aed" />
-                                    </linearGradient>
-                                </defs>
-                            </svg>
-                            <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                <span className="text-4xl font-bold text-gray-800">85%</span>
-                                <span className="text-sm text-gray-500">GLOBAL</span>
+                        {!isLoadingStats && rankedProfiles.length === 0 && (
+                            <div className="rounded-lg bg-gray-50 px-3 py-4 text-sm text-gray-500 text-center">
+                                Aucune donnée disponible pour ce filtre.
                             </div>
-                        </div>
-                    </div>
-
-                    {/* Légende */}
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full bg-purple-600"></div>
-                                <span className="text-sm text-gray-600">Présents</span>
-                            </div>
-                            <span className="text-sm font-medium text-gray-800">850</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <div className="w-3 h-3 rounded-full bg-gray-300"></div>
-                                <span className="text-sm text-gray-600">Inscrits absents</span>
-                            </div>
-                            <span className="text-sm font-medium text-gray-800">150</span>
-                        </div>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* Section notifications et événements */}
-            <div className="grid grid-cols-3 gap-6">
-                {/* Notifications Récentes */}
+            <div className="grid grid-cols-3 gap-6 mb-8">
                 <div className="col-span-2 bg-white rounded-xl p-6 shadow-sm">
-                    <div className="flex justify-between items-center mb-6">
-                        <h2 className="text-lg font-bold text-gray-800">Notifications Récentes</h2>
-                        <button className="text-purple-600 text-sm font-medium hover:underline">
-                            Tout marquer comme lu
-                        </button>
+                    <div className="flex items-start justify-between gap-4 mb-6">
+                        <div>
+                            <h2 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                                <TrendingUp className="w-5 h-5 text-fuchsia-700" />
+                                Analyse des événements
+                            </h2>
+                            <p className="text-sm text-gray-500">
+                                Suivi des créations, validations, rejets et inscriptions.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <select
+                                value={eventCurveMetric}
+                                onChange={(e) => setEventCurveMetric(e.target.value)}
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-fuchsia-500"
+                            >
+                                <option value="created">Événements créés</option>
+                                <option value="registrations">Inscriptions</option>
+                                <option value="validated">Validations</option>
+                                <option value="rejected">Rejets</option>
+                            </select>
+                        </div>
                     </div>
 
-                    <div className="space-y-4">
-                        {/* Notification 1 */}
-                        <div className="flex items-start gap-4 p-4 hover:bg-gray-50 rounded-lg transition-colors">
-                            <div className="bg-green-100 p-2 rounded-lg">
-                                <Users className="w-5 h-5 text-green-600" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm text-gray-800">
-                                    <span className="font-medium">Sophie Martin</span> vient de finaliser son adhésion annuelle.
-                                </p>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-xs text-gray-500">Il y a 10 minutes</span>
-                                    <span className="text-xs text-purple-600 font-medium">• Profil Adhérente</span>
-                                </div>
-                            </div>
+                    <div className="rounded-xl border border-fuchsia-100 bg-fuchsia-50/30 p-4">
+                        <svg viewBox={`0 0 ${eventChartModel.width} ${eventChartModel.height}`} className="w-full h-60">
+                            {[0.25, 0.5, 0.75, 1].map((ratio) => {
+                                const y = eventChartModel.baseY - (ratio * eventChartModel.innerHeight);
+                                return (
+                                    <line
+                                        key={`event-grid-${ratio}`}
+                                        x1={eventChartModel.left}
+                                        x2={eventChartModel.left + eventChartModel.innerWidth}
+                                        y1={y}
+                                        y2={y}
+                                        stroke="#f2d7e9"
+                                        strokeWidth="1"
+                                    />
+                                );
+                            })}
+                            {eventChartModel.bars.map((bar, index) => (
+                                <g key={`event-bar-${index}`}>
+                                    <rect
+                                        x={bar.x}
+                                        y={bar.y}
+                                        width={Math.max(12, (eventChartModel.innerWidth / Math.max(eventChartModel.bars.length, 1)) * 0.55)}
+                                        height={bar.barHeight}
+                                        rx="6"
+                                        fill="#D94FAF"
+                                        fillOpacity="0.85"
+                                    />
+                                </g>
+                            ))}
+                        </svg>
+                        <div className="mt-2 flex items-center justify-between text-xs text-gray-500">
+                            {eventMonthlyData.map((month) => (
+                                <span key={`event-label-${month.key}`}>{month.label}</span>
+                            ))}
                         </div>
+                    </div>
 
-                        {/* Notification 2 */}
-                        <div className="flex items-start gap-4 p-4 hover:bg-gray-50 rounded-lg transition-colors">
-                            <div className="bg-blue-100 p-2 rounded-lg">
-                                <Euro className="w-5 h-5 text-blue-600" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm text-gray-800">
-                                    <span className="font-medium">Cotisation Reçue :</span> Sarah K. a payé via Stripe (Formation IA).
-                                </p>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-xs text-gray-500">Il y a 45 minutes</span>
-                                    <span className="text-xs text-purple-600 font-medium">• Détails Facture</span>
-                                </div>
-                            </div>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                        <div className="rounded-lg bg-emerald-50 px-4 py-3 border border-emerald-100">
+                            <p className="text-xs text-emerald-700 uppercase tracking-wide">Taux de validation</p>
+                            <p className="text-xl font-bold text-emerald-800">{eventInsights.approvalRate}%</p>
                         </div>
-
-                        {/* Notification 3 */}
-                        <div className="flex items-start gap-4 p-4 hover:bg-gray-50 rounded-lg transition-colors">
-                            <div className="bg-orange-100 p-2 rounded-lg">
-                                <Calendar className="w-5 h-5 text-orange-600" />
-                            </div>
-                            <div className="flex-1">
-                                <p className="text-sm text-gray-800">
-                                    <span className="font-medium">Nouvel Événement :</span> L'atelier "Networking Digital" est complet.
-                                </p>
-                                <div className="flex items-center gap-2 mt-1">
-                                    <span className="text-xs text-gray-500">Il y a 2 heures</span>
-                                    <span className="text-xs text-purple-600 font-medium">• Gérer l'Event</span>
-                                </div>
-                            </div>
+                        <div className="rounded-lg bg-amber-50 px-4 py-3 border border-amber-100">
+                            <p className="text-xs text-amber-700 uppercase tracking-wide">Événements en attente</p>
+                            <p className="text-xl font-bold text-amber-800">{eventInsights.pendingCount}</p>
                         </div>
                     </div>
                 </div>
 
-                {/* Événements à Venir */}
                 <div className="bg-white rounded-xl p-6 shadow-sm">
-                    <h2 className="text-lg font-bold text-gray-800 mb-6">Événements à Venir</h2>
-
-                    {/* Calendrier mini */}
-                    <div className="mb-6">
-                        <div className="grid grid-cols-7 gap-1 mb-2">
-                            {['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((day, i) => (
-                                <div key={i} className="text-center text-xs font-medium text-gray-500 py-1">
-                                    {day}
-                                </div>
-                            ))}
-                        </div>
-                        <div className="grid grid-cols-7 gap-1">
-                            {[28, 29, 30, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18].map((day, i) => (
-                                <div
-                                    key={i}
-                                    className={`text-center text-sm py-2 rounded-lg transition-colors ${day < 28 ? 'text-gray-300' : day === 6 ? 'bg-purple-600 text-white font-medium' : day === 10 ? 'bg-purple-100 text-purple-600 font-medium' : 'text-gray-700 hover:bg-gray-100'
-                                        }`}
-                                >
-                                    {day}
-                                </div>
-                            ))}
-                        </div>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-gray-800">Top événements inscrits</h2>
+                        <Users className="w-4 h-4 text-fuchsia-600" />
                     </div>
-
-                    {/* Prochain événement */}
-                    <div className="bg-purple-50 rounded-lg p-4 border-l-4 border-purple-600">
-                        <div className="flex items-start gap-3">
-                            <div className="bg-purple-600 text-white rounded-lg px-3 py-2 text-center">
-                                <div className="text-xs font-medium">JUIN</div>
-                                <div className="text-2xl font-bold">10</div>
-                            </div>
-                            <div className="flex-1">
-                                <h3 className="font-medium text-gray-800 mb-1">Atelier Tech & Women</h3>
-                                <div className="flex items-center gap-2 text-xs text-gray-600">
-                                    <span>🕐 18:30</span>
-                                    <span>•</span>
-                                    <span>Distanciel</span>
+                    <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+                        {topEventsByParticipants.slice(0, 8).map((event, index) => (
+                            <div
+                                key={`${event.id}-${index}`}
+                                className="flex items-center justify-between rounded-lg border border-fuchsia-100 px-3 py-2"
+                            >
+                                <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-gray-800 truncate">
+                                        {index + 1}. {event.title}
+                                    </p>
+                                    <p className="text-xs text-gray-500">
+                                        Créé le {formatDateTime(event.dateMs)}
+                                    </p>
                                 </div>
+                                <span className="text-xs font-semibold text-fuchsia-700 whitespace-nowrap">
+                                    {event.participants} inscrit(es)
+                                </span>
                             </div>
-                        </div>
+                        ))}
+                        {!isLoadingStats && topEventsByParticipants.length === 0 && (
+                            <div className="rounded-lg bg-gray-50 px-3 py-4 text-sm text-gray-500 text-center">
+                                Aucun événement disponible.
+                            </div>
+                        )}
                     </div>
+                </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 shadow-sm">
+                <div className="flex items-center justify-between mb-5">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">Détail des payeuses</h2>
+                        <p className="text-sm text-gray-500">
+                            Tri actif: <span className="font-medium text-fuchsia-700">{rankingLabel}</span>
+                        </p>
+                    </div>
+                    <div className="text-sm text-gray-500">
+                        {rankedProfiles.length} profil(s)
+                    </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                    <table className="w-full">
+                        <thead>
+                            <tr className="border-b border-fuchsia-100">
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">#</th>
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Adhérente</th>
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Total versé</th>
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Paiements</th>
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">1er paiement</th>
+                                <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase">Dernier paiement</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-fuchsia-100/70">
+                            {rankedProfiles.slice(0, 12).map((profile, index) => (
+                                <tr key={`${profile.key}-${index}`} className="hover:bg-fuchsia-50/40">
+                                    <td className="px-4 py-3 text-sm font-medium text-gray-700">{index + 1}</td>
+                                    <td className="px-4 py-3 text-sm font-semibold text-gray-800">{profile.name}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700">{formatAmount(profile.totalAmount)}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700">{profile.paymentCount}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700">{formatDateTime(profile.firstPaymentMs)}</td>
+                                    <td className="px-4 py-3 text-sm text-gray-700">{formatDateTime(profile.lastPaymentMs)}</td>
+                                </tr>
+                            ))}
+                            {!isLoadingStats && rankedProfiles.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-gray-500">
+                                        Aucune payeuse trouvée pour le filtre actuel.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>

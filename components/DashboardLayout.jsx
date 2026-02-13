@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { LogOut, Menu, X, Home, Users, FileText, Settings } from 'lucide-react';
 import AdminDashboard from './dashboard';
 import MembersManagement from './Admin';
+import AFPDLogo from './AFPDLogo';
 
 const DashboardLayout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -52,7 +53,7 @@ const DashboardLayout = () => {
             <div className="lg:hidden fixed top-4 left-4 z-50">
                 <button
                     onClick={() => setIsSidebarMobileOpen(!isSidebarMobileOpen)}
-                    className="p-2 bg-white rounded-lg shadow-md border border-gray-200"
+                    className="p-2 bg-white rounded-lg shadow-md border border-fuchsia-100"
                 >
                     {isSidebarMobileOpen ? (
                         <X className="w-6 h-6 text-gray-600" />
@@ -72,20 +73,16 @@ const DashboardLayout = () => {
 
             {/* Sidebar */}
             <aside
-                className={`fixed lg:sticky top-0 left-0 z-50 h-screen bg-white border-r border-gray-200 transition-all duration-200 ${isSidebarOpen ? 'w-64' : 'w-20'
+                className={`fixed lg:sticky top-0 left-0 z-50 h-screen bg-white border-r border-fuchsia-100 transition-all duration-200 ${isSidebarOpen ? 'w-64' : 'w-20'
                     } ${isSidebarMobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
             >
                 <div className="h-full flex flex-col">
                     {/* Header */}
-                    <div className="flex items-center justify-between px-4 py-6 border-b border-gray-200">
+                    <div className="flex items-center justify-between px-4 py-6 border-b border-fuchsia-100">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-purple-500/30">
-                                <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                                </svg>
-                            </div>
+                            <AFPDLogo compact showTitle={isSidebarOpen} />
                             {isSidebarOpen && (
-                                <span className="text-lg font-bold text-gray-900">AFPD</span>
+                                <span className="text-sm font-medium text-fuchsia-700/80">Admin</span>
                             )}
                         </div>
                         <button
@@ -109,7 +106,7 @@ const DashboardLayout = () => {
                                         setIsSidebarMobileOpen(false);
                                     }}
                                     className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
-                                            ? 'bg-purple-100 text-purple-600 font-medium'
+                                            ? 'bg-fuchsia-100 text-fuchsia-700 font-medium'
                                             : 'text-gray-600 hover:bg-gray-100'
                                         }`}
                                 >
@@ -121,7 +118,7 @@ const DashboardLayout = () => {
                     </nav>
 
                     {/* Logout Button */}
-                    <div className="px-3 py-4 border-t border-gray-200">
+                    <div className="px-3 py-4 border-t border-fuchsia-100">
                         <button
                             className="w-full flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-red-50 hover:text-red-600 rounded-lg transition-colors"
                         >

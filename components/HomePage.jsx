@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import AccessModal from '../components/AccessModal';
-import { apiGet, apiPost } from '../src/api';
+import { apiGet, apiPost, clearAuthToken, setAuthToken } from '../src/api';
+import AFPDLogo from './AFPDLogo';
 
 const HomePage = () => {
     const [email, setEmail] = useState('');
@@ -35,6 +36,19 @@ const HomePage = () => {
         }
     };
 
+    const isCommunityManagerRole = (normalizedRole) => {
+        if (!normalizedRole) return false;
+        return (
+            normalizedRole.includes('communitymanager') ||
+            normalizedRole.includes('community manager') ||
+            normalizedRole.includes('community-manager') ||
+            normalizedRole.includes('community_manager') ||
+            normalizedRole.includes('managercommunaute') ||
+            normalizedRole.includes('manager communaute') ||
+            (normalizedRole.includes('community') && normalizedRole.includes('manager'))
+        );
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setErrorMessage('');
@@ -43,6 +57,10 @@ const HomePage = () => {
         try {
             // setAuthStorage(rememberMe);
             const data = await apiPost('/api/login', { email, password });
+            const token = data?.token ?? data?.access_token ?? data?.data?.token ?? '';
+            if (token) {
+                setAuthToken(token);
+            }
             const roleId = data?.user?.role_id;
             const roleName =
                 data?.user?.role?.nom_role ||
@@ -59,10 +77,14 @@ const HomePage = () => {
                 navigate('/admin');
             } else if (normalizedRole.includes('tresoriere') || normalizedRole.includes('tresorier')) {
                 navigate('/tresorier');
+            } else if (isCommunityManagerRole(normalizedRole)) {
+                navigate('/community-manager');
             } else {
+                clearAuthToken();
                 setErrorMessage("Accès non autorisé pour ce rôle.");
             }
         } catch (error) {
+            clearAuthToken();
             const status = error?.status;
             if (status === 403) {
                 setErrorMessage('Compte non validé par l’administration.');
@@ -85,28 +107,21 @@ const HomePage = () => {
     };
 
     return (
-        <div className="relative min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100 flex items-center justify-center overflow-hidden">
+        <div className="relative min-h-screen bg-gradient-to-b from-rose-50 via-pink-50/40 to-fuchsia-50/50 flex items-center justify-center overflow-hidden">
             {/* Background Orbs */}
-            <div className="pointer-events-none absolute -top-32 -right-24 h-80 w-80 rounded-full bg-purple-200/40 blur-3xl" />
-            <div className="pointer-events-none absolute -bottom-24 -left-32 h-96 w-96 rounded-full bg-indigo-200/40 blur-3xl" />
+            <div className="pointer-events-none absolute -top-32 -right-24 h-80 w-80 rounded-full bg-fuchsia-200/50 blur-3xl" />
+            <div className="pointer-events-none absolute -bottom-24 -left-32 h-96 w-96 rounded-full bg-pink-200/60 blur-3xl" />
             {/* Navigation Header */}
             <nav className="fixed top-0 left-0 right-0 bg-white/80 backdrop-blur-md z-50 border-b border-white/40 shadow-sm">
                 <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <div className="w-10 h-10 bg-gradient-to-br from-purple-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md shadow-purple-500/30">
-                            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
-                            </svg>
-                        </div>
-                        <span className="text-xl font-bold text-gray-900">AFPD</span>
-                    </div>
+                    <AFPDLogo compact />
                     <div className="flex items-center gap-8">
-                        <a href="#" className="text-gray-700 hover:text-gray-900 text-sm font-medium hover:bg-purple-600  px-4 py-2 rounded-lg transition-colors">Accueil</a>
-                        <a href="#" className="text-gray-700 hover:text-gray-900 text-sm font-medium hover:bg-purple-600  px-4 py-2 rounded-lg transition-colors">À propos</a>
-                        <a href="#" className="text-gray-700 hover:text-gray-900 text-sm font-medium hover:bg-purple-600  px-4 py-2 rounded-lg transition-colors">Contact</a>
+                        <a href="#" className="text-gray-700 hover:text-fuchsia-700 text-sm font-medium hover:bg-fuchsia-100 px-4 py-2 rounded-lg transition-colors">Accueil</a>
+                        <a href="#" className="text-gray-700 hover:text-fuchsia-700 text-sm font-medium hover:bg-fuchsia-100 px-4 py-2 rounded-lg transition-colors">À propos</a>
+                        <a href="#" className="text-gray-700 hover:text-fuchsia-700 text-sm font-medium hover:bg-fuchsia-100 px-4 py-2 rounded-lg transition-colors">Contact</a>
                         <button
                             onClick={openAccessModal}
-                            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-md shadow-purple-500/20"
+                            className="bg-fuchsia-700 hover:bg-fuchsia-800 text-white px-6 py-2.5 rounded-xl text-sm font-medium transition-colors shadow-md shadow-fuchsia-500/20"
                         >
                             Demander un accès
                         </button>
@@ -118,8 +133,8 @@ const HomePage = () => {
             <div className="w-full mt-16 mx-auto">
                 <div className="backdrop-blur ring-1 ring-black/5 overflow-hidden">
                     <div className="grid md:grid-cols-2">
-                        {/* Left Panel - Purple Section */}
-                        <div className="bg-gradient-to-br from-purple-600 via-purple-600 to-indigo-600 p-12 text-white relative overflow-hidden">
+                        {/* Left Panel - Brand Section */}
+                        <div className="bg-gradient-to-br from-fuchsia-700 via-fuchsia-600 to-violet-700 p-12 text-white relative overflow-hidden">
                             <div className="relative z-10">
                                 <div className="inline-flex items-center gap-2 bg-white/20 backdrop-blur-sm px-4 py-2 rounded-full text-sm mb-8">
                                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -129,11 +144,11 @@ const HomePage = () => {
                                 </div>
 
                                 <h1 className="text-4xl md:text-5xl font-bold mb-6 leading-tight">
-                                    Innover pour demain.
+                                    Innover, s'entraider, transformer.
                                 </h1>
 
-                                <p className="text-base text-purple-100 mb-12 leading-relaxed">
-                                    Rejoignez le réseau des femmes à la pointe du digital et gérez vos initiatives avec simplicité.
+                                <p className="text-base text-fuchsia-100 mb-12 leading-relaxed">
+                                    Une plateforme par et pour les femmes du digital, pour piloter les initiatives avec force et clarte.
                                 </p>
 
                                 <div className="rounded-2xl overflow-hidden ring-1 ring-white/10">
@@ -146,8 +161,8 @@ const HomePage = () => {
                             </div>
 
                             {/* Decorative Elements */}
-                            <div className="absolute top-0 right-0 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl" />
-                            <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-900/20 rounded-full blur-3xl" />
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-fuchsia-400/30 rounded-full blur-3xl" />
+                            <div className="absolute bottom-0 left-0 w-96 h-96 bg-violet-900/30 rounded-full blur-3xl" />
                         </div>
 
                         {/* Right Panel - Login Form */}
@@ -184,7 +199,7 @@ const HomePage = () => {
                                                 value={email}
                                                 onChange={(e) => setEmail(e.target.value)}
                                                 placeholder="exemple@afpd.com"
-                                                className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-gray-900 placeholder-gray-400 bg-white/90"
+                                                className="w-full pl-12 pr-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-gray-900 placeholder-gray-400 bg-white/90"
                                                 required
                                             />
                                         </div>
@@ -196,7 +211,7 @@ const HomePage = () => {
                                             <label htmlFor="password" className="block text-sm font-semibold text-gray-900">
                                                 Mot de passe
                                             </label>
-                                            <a href="#" className="text-sm font-medium text-purple-600 hover:text-purple-700">
+                                            <a href="#" className="text-sm font-medium text-fuchsia-700 hover:text-fuchsia-800">
                                                 Mot de passe oublié ?
                                             </a>
                                         </div>
@@ -212,7 +227,7 @@ const HomePage = () => {
                                                 value={password}
                                                 onChange={(e) => setPassword(e.target.value)}
                                                 placeholder="••••••••"
-                                                className="w-full pl-12 pr-12 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-purple-500/40 focus:border-purple-500 outline-none transition-all text-base text-gray-900 bg-white/90"
+                                                className="w-full pl-12 pr-12 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-fuchsia-500/40 focus:border-fuchsia-500 outline-none transition-all text-base text-gray-900 bg-white/90"
                                                 required
                                             />
                                             <button
@@ -238,7 +253,7 @@ const HomePage = () => {
                                             type="checkbox"
                                             checked={rememberMe}
                                             onChange={(e) => setRememberMe(e.target.checked)}
-                                            className="w-4 h-4 text-purple-600 border-gray-300 rounded focus:ring-purple-500"
+                                            className="w-4 h-4 text-fuchsia-700 border-gray-300 rounded focus:ring-fuchsia-500"
                                         />
                                         <label htmlFor="remember" className="ml-2 text-sm text-gray-600">
                                             Se souvenir de moi
@@ -249,7 +264,7 @@ const HomePage = () => {
                                     <button
                                         type="submit"
                                         disabled={isSubmitting}
-                                        className={`w-full bg-purple-600 hover:bg-purple-700 text-white font-semibold py-3.5 rounded-xl transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] shadow-lg shadow-purple-500/20 hover:shadow-xl text-base ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
+                                        className={`w-full bg-fuchsia-700 hover:bg-fuchsia-800 text-white font-semibold py-3.5 rounded-xl transition-all duration-200 transform hover:scale-[1.01] active:scale-[0.99] shadow-lg shadow-fuchsia-500/20 hover:shadow-xl text-base ${isSubmitting ? 'opacity-70 cursor-not-allowed' : ''
                                             }`}
                                     >
                                         {isSubmitting ? 'Connexion...' : 'Se connecter'}
@@ -258,7 +273,7 @@ const HomePage = () => {
                                     {/* Footer Link */}
                                     <div className="text-center text-base text-gray-600">
                                         Vous n'avez pas de compte ?{' '}
-                                        <a href="#" className="font-semibold text-purple-600 hover:text-purple-700">
+                                        <a href="#" className="font-semibold text-fuchsia-700 hover:text-fuchsia-800">
                                             Contactez l'administration
                                         </a>
                                     </div>
