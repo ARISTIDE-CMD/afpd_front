@@ -26,6 +26,9 @@ const AdminDashboard = () => {
     const [eventCurveMetric, setEventCurveMetric] = useState('created');
     const [rankingMode, setRankingMode] = useState('highest_amount');
     const [rankingSearch, setRankingSearch] = useState('');
+    const CORE_STATS_TIMEOUT_MS = 45000;
+    const MODERATION_TIMEOUT_MS = 30000;
+    const RETRY_COUNT = 2;
 
     const normalizeStatus = (value) => {
         if (!value) return '';
@@ -191,41 +194,108 @@ const AdminDashboard = () => {
         return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
     };
 
+    const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    const fetchWithRetry = async (endpoint, { timeout = CORE_STATS_TIMEOUT_MS, retries = RETRY_COUNT } = {}) => {
+        let lastError = null;
+
+        for (let attempt = 0; attempt <= retries; attempt += 1) {
+            try {
+                return await apiGet(endpoint, { timeout });
+            } catch (error) {
+                lastError = error;
+                const status = error?.status;
+                const message = (error?.message || '').toLowerCase();
+                const shouldRetry =
+                    attempt < retries &&
+                    (
+                        !status ||
+                        status >= 500 ||
+                        message.includes('timeout') ||
+                        message.includes('failed to fetch')
+                    );
+
+                if (!shouldRetry) break;
+                await wait(1200 * (attempt + 1));
+            }
+        }
+
+        throw lastError;
+    };
+
     useEffect(() => {
         const fetchStats = async () => {
             setIsLoadingStats(true);
             setStatsError('');
-            try {
-                const [paymentsData, usersData, eventsData] = await Promise.all([
-                    apiGet('/api/cotisations'),
-                    apiGet('/api/users'),
-                    apiGet('/api/evenements'),
-                ]);
-                const paymentsList = Array.isArray(paymentsData) ? paymentsData : paymentsData?.data ?? [];
-                const usersList = Array.isArray(usersData) ? usersData : usersData?.data ?? [];
-                const eventsList = Array.isArray(eventsData) ? eventsData : eventsData?.data ?? [];
+            const coreResults = await Promise.allSettled([
+                fetchWithRetry('/api/cotisations', { timeout: CORE_STATS_TIMEOUT_MS }),
+                fetchWithRetry('/api/users', { timeout: CORE_STATS_TIMEOUT_MS }),
+                fetchWithRetry('/api/evenements', { timeout: CORE_STATS_TIMEOUT_MS }),
+            ]);
+
+            const [paymentsResult, usersResult, eventsResult] = coreResults;
+            const failedCore = [];
+
+            if (paymentsResult.status === 'fulfilled') {
+                const paymentsList = Array.isArray(paymentsResult.value)
+                    ? paymentsResult.value
+                    : paymentsResult.value?.data ?? [];
                 setPayments(Array.isArray(paymentsList) ? paymentsList : []);
-                setUsers(Array.isArray(usersList) ? usersList : []);
-                setEvents(Array.isArray(eventsList) ? eventsList : []);
-            } catch (error) {
-                setStatsError("Impossible de charger les statistiques.");
+            } else {
+                setPayments([]);
+                failedCore.push('cotisations');
             }
 
-            try {
-                const [pendingData, pendingEventsData] = await Promise.all([
-                    apiGet('/api/admin/pending-users'),
-                    apiGet('/api/admin/pending-events'),
-                ]);
-                const pendingList = Array.isArray(pendingData) ? pendingData : pendingData?.data ?? [];
-                const pendingEventsList = Array.isArray(pendingEventsData) ? pendingEventsData : pendingEventsData?.data ?? [];
-                setPendingUsers(Array.isArray(pendingList) ? pendingList : []);
-                setPendingEvents(Array.isArray(pendingEventsList) ? pendingEventsList : []);
-            } catch (error) {
-                setPendingUsers([]);
-                setPendingEvents([]);
-            } finally {
-                setIsLoadingStats(false);
+            if (usersResult.status === 'fulfilled') {
+                const usersList = Array.isArray(usersResult.value)
+                    ? usersResult.value
+                    : usersResult.value?.data ?? [];
+                setUsers(Array.isArray(usersList) ? usersList : []);
+            } else {
+                setUsers([]);
+                failedCore.push('adhérentes');
             }
+
+            if (eventsResult.status === 'fulfilled') {
+                const eventsList = Array.isArray(eventsResult.value)
+                    ? eventsResult.value
+                    : eventsResult.value?.data ?? [];
+                setEvents(Array.isArray(eventsList) ? eventsList : []);
+            } else {
+                setEvents([]);
+                failedCore.push('événements');
+            }
+
+            const moderationResults = await Promise.allSettled([
+                fetchWithRetry('/api/admin/pending-users', { timeout: MODERATION_TIMEOUT_MS }),
+                fetchWithRetry('/api/admin/pending-events', { timeout: MODERATION_TIMEOUT_MS }),
+            ]);
+
+            const [pendingUsersResult, pendingEventsResult] = moderationResults;
+
+            if (pendingUsersResult.status === 'fulfilled') {
+                const pendingList = Array.isArray(pendingUsersResult.value)
+                    ? pendingUsersResult.value
+                    : pendingUsersResult.value?.data ?? [];
+                setPendingUsers(Array.isArray(pendingList) ? pendingList : []);
+            } else {
+                setPendingUsers([]);
+            }
+
+            if (pendingEventsResult.status === 'fulfilled') {
+                const pendingEventsList = Array.isArray(pendingEventsResult.value)
+                    ? pendingEventsResult.value
+                    : pendingEventsResult.value?.data ?? [];
+                setPendingEvents(Array.isArray(pendingEventsList) ? pendingEventsList : []);
+            } else {
+                setPendingEvents([]);
+            }
+
+            if (failedCore.length > 0) {
+                setStatsError(`Certaines données n'ont pas pu être chargées: ${failedCore.join(', ')}.`);
+            }
+
+            setIsLoadingStats(false);
         };
 
         fetchStats();

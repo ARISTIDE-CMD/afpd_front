@@ -1,5 +1,6 @@
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '');
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS || 15000);
 const AUTH_TOKEN_STORAGE_KEY = 'afpd_auth_token';
 
 interface FetchOptions extends RequestInit {
@@ -29,7 +30,8 @@ export const apiFetch = async (
     endpoint: string,
     options: FetchOptions = {}
 ): Promise<Response> => {
-    const { timeout = 5000, ...fetchOptions } = options;
+    const fallbackTimeout = Number.isFinite(API_TIMEOUT_MS) ? API_TIMEOUT_MS : 15000;
+    const { timeout = fallbackTimeout, ...fetchOptions } = options;
 
     const url = `${API_BASE_URL}${endpoint}`;
 
