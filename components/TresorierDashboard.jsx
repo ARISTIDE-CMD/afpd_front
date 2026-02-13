@@ -587,7 +587,7 @@ const CotisationsTracker = () => {
                 <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">
                   {stat.title}
                 </span>
-                <div className="w-10 h-10 rounded-lg flex items-center justify-center"
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center signal-icon"
                      style={{ 
                        backgroundColor: stat.color === 'brand' ? '#FCE7F3' : 
                                        stat.color === 'orange' ? '#FFF1F2' : '#FDF2F8'

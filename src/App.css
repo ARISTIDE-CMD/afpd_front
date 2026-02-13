@@ -44,3 +44,63 @@
 #root{
   font-size: 15px;
 }
+
+@keyframes signalPulse {
+  0% {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.35;
+  }
+  70% {
+    opacity: 0.08;
+  }
+  100% {
+    transform: scale(1.34);
+    opacity: 0;
+  }
+}
+
+@keyframes iconBeat {
+  0%, 100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 0 rgba(184, 50, 143, 0));
+  }
+  50% {
+    transform: scale(1.05);
+    filter: drop-shadow(0 0 8px rgba(184, 50, 143, 0.35));
+  }
+}
+
+.signal-icon {
+  position: relative;
+  isolation: isolate;
+}
+
+.signal-icon::before,
+.signal-icon::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 0.95rem;
+  border: 2px solid rgba(184, 50, 143, 0.42);
+  pointer-events: none;
+  animation: signalPulse 2.2s ease-out infinite;
+}
+
+.signal-icon::after {
+  animation-delay: 1.1s;
+}
+
+.signal-icon > svg {
+  animation: iconBeat 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .signal-icon::before,
+  .signal-icon::after,
+  .signal-icon > svg {
+    animation: none;
+  }
+}

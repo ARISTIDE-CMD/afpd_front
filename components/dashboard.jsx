@@ -768,7 +768,7 @@ const AdminDashboard = () => {
                     return (
                         <div key={stat.title} className="bg-white rounded-xl p-6 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
-                                <div className={`${stat.iconBg} p-3 rounded-lg`}>
+                                <div className={`${stat.iconBg} signal-icon p-3 rounded-lg`}>
                                     <Icon className={`w-6 h-6 ${stat.iconColor}`} />
                                 </div>
                             </div>
@@ -787,7 +787,7 @@ const AdminDashboard = () => {
                     return (
                         <div key={stat.title} className="bg-white rounded-xl p-6 shadow-sm">
                             <div className="flex items-center justify-between mb-4">
-                                <div className={`${stat.iconBg} p-3 rounded-lg`}>
+                                <div className={`${stat.iconBg} signal-icon p-3 rounded-lg`}>
                                     <Icon className={`w-6 h-6 ${stat.iconColor}`} />
                                 </div>
                             </div>
